@@ -4,7 +4,10 @@
 import { Resend } from "resend";
 import type { Alert } from "./alerts";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy init — prevents build-time module evaluation failure when env var not set
+function getResend() {
+  return new Resend(process.env.RESEND_API_KEY);
+}
 
 const SEVERITY_COLOR: Record<string, string> = {
   high:   "#EF4444",
@@ -87,7 +90,7 @@ export async function sendAlertDigest(alerts: Alert[]): Promise<void> {
       ? `📋 ${alerts.length} alert${alerts.length > 1 ? "s" : ""} — Rewards App`
       : "✅ All clear — Rewards App digest";
 
-  await resend.emails.send({
+  await getResend().emails.send({
     from: "Rewards App <onboarding@resend.dev>",
     to,
     subject,
