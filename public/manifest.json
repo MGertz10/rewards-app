@@ -1,24 +1,24 @@
 {
-  "name": "Rewards App",
-  "short_name": "Rewards",
-  "description": "Personal credit card rewards optimizer",
+  "name": "Ascend HQ",
+  "short_name": "Ascend HQ",
+  "description": "Personal credit card rewards and finance optimizer",
   "start_url": "/optimizer",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#117ACA",
+  "background_color": "#0A1628",
+  "theme_color": "#188FE6",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
+      "src": "/icon.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
+      "src": "/apple-icon.png",
+      "sizes": "180x180",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ]
 }

@@ -14,7 +14,7 @@ export interface CardResult {
 }
 
 export function scoreCards(category: Category, amount: number): CardResult[] {
-  const results: CardResult[] = CARDS.map((card) => {
+  const results = CARDS.map((card) => {
     const { multiplier, note } = getMultiplier(card, category);
     const cpp = CPP[card.pointsProgram];
     const pointsEarned = Math.round(amount * multiplier);

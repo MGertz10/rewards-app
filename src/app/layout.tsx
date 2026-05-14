@@ -10,13 +10,13 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Rewards App",
-  description: "Personal credit card rewards optimizer",
+  title: "Ascend HQ",
+  description: "Personal credit card rewards and finance optimizer",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
-    title: "Rewards",
+    statusBarStyle: "black-translucent",
+    title: "Ascend HQ",
   },
 };
 

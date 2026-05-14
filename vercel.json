@@ -1,0 +1,7 @@
+{
+  "crons": [
+    { "path": "/api/cron/refresh-balances",  "schedule": "0 11 * * *" },
+    { "path": "/api/cron/generate-alerts",   "schedule": "0 12 * * *" },
+    { "path": "/api/cron/send-alert-emails", "schedule": "0 13 * * *" }
+  ]
+}

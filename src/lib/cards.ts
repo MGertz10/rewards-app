@@ -1,5 +1,11 @@
 // Card definitions, multipliers, and CPP values
 // Based on CARD_RULES.md
+//
+// Field origin policy:
+// - id, name, multipliers, points program: STATIC, defined here
+// - annualFee, productFamily, downgradeTargetId: STATIC (issuer-defined)
+// - openedDate, statementCloseDay, dueDay, creditLimit, last4, feeMonth: USER-PROVIDED
+//   placeholders are seeded; user updates via Settings → My Cards or onboarding.
 
 export type PointsProgram = "chase_ur" | "capital_one" | "marriott_bonvoy";
 
@@ -33,12 +39,25 @@ export interface Card {
   pointsProgram: PointsProgram;
   multipliers: CardMultiplier[];
   catchAllMultiplier: number;
+
+  // ── Account metadata (Phase 0.1) ──
+  // Optional so existing code keeps compiling; required for Annual Fee Calendar,
+  // Payment Timing, Credit Score Optimizer features.
+  annualFee: number;                 // 0, 95, 395
+  productFamily: string;             // for downgrade chain lookups
+  downgradeTargetId?: string;        // null if no downgrade path
+  openedDate?: string;               // ISO YYYY-MM-DD — user provides
+  feeMonth?: number;                 // 1-12 anniversary month — derived from openedDate if absent
+  statementCloseDay?: number;        // 1-31 — user provides
+  dueDay?: number;                   // 1-31 — user provides
+  creditLimit?: number;              // for utilization math — user provides
+  last4?: string;                    // user provides
 }
 
 // CPP values in cents per point (conservative estimates)
 export const CPP: Record<PointsProgram, number> = {
-  chase_ur: 1.7,       // Great via Hyatt/United transfers
-  capital_one: 1.5,    // Turkish, Flying Blue (devaluation risk — prioritize deployment)
+  chase_ur: 1.7,        // Great via Hyatt/United transfers
+  capital_one: 1.5,     // Turkish, Flying Blue (devaluation risk — prioritize deployment)
   marriott_bonvoy: 0.7, // Category 1–4 hotels; certs worth more
 };
 
@@ -52,6 +71,8 @@ export const CARDS: Card[] = [
     textColor: "#ffffff",
     pointsProgram: "chase_ur",
     catchAllMultiplier: 1.5,
+    annualFee: 0,
+    productFamily: "chase_freedom",
     multipliers: [
       { category: "dining", multiplier: 3, note: "Includes takeout & delivery" },
       { category: "drugstore", multiplier: 3, note: "Walgreens, CVS" },
@@ -66,6 +87,9 @@ export const CARDS: Card[] = [
     textColor: "#F5A623",
     pointsProgram: "chase_ur",
     catchAllMultiplier: 1,
+    annualFee: 95,
+    productFamily: "chase_sapphire",
+    downgradeTargetId: "cfu", // CSP can downgrade to CFU (no fee)
     multipliers: [
       { category: "dining", multiplier: 3, note: "Includes delivery apps" },
       { category: "online_grocery", multiplier: 3, note: "Excludes Walmart, Target, Whole Foods" },
@@ -85,6 +109,9 @@ export const CARDS: Card[] = [
     textColor: "#ffffff",
     pointsProgram: "marriott_bonvoy",
     catchAllMultiplier: 2,
+    annualFee: 95,
+    productFamily: "marriott_chase",
+    downgradeTargetId: "bonvoy_bold", // launch case for downgrade flow
     multipliers: [
       { category: "marriott", multiplier: 6, note: "All Marriott brands" },
       { category: "gas", multiplier: 3 },
@@ -101,6 +128,9 @@ export const CARDS: Card[] = [
     textColor: "#ffffff",
     pointsProgram: "capital_one",
     catchAllMultiplier: 2,
+    annualFee: 395,
+    productFamily: "capital_one_venture",
+    downgradeTargetId: "venture", // Venture X can downgrade to Venture ($95)
     multipliers: [
       { category: "hotel", multiplier: 10, note: "Must book via Capital One Travel portal" },
       { category: "rental_car", multiplier: 10, note: "Must book via Capital One Travel portal" },
@@ -113,4 +143,9 @@ export function getMultiplier(card: Card, category: Category): { multiplier: num
   const match = card.multipliers.find((m) => m.category === category);
   if (match) return { multiplier: match.multiplier, note: match.note };
   return { multiplier: card.catchAllMultiplier };
+}
+
+// Lookup helper used across pages
+export function getCardById(id: string): Card | undefined {
+  return CARDS.find((c) => c.id === id);
 }
