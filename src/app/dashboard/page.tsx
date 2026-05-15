@@ -4,10 +4,13 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import {
   ChevronRight, ChevronDown, ChevronUp, Building2, RefreshCw,
-  Coins, ArrowUpRight, TrendingUp,
+  Coins, UtensilsCrossed, Car, Home, Plane, ShoppingBag, Heart,
+  Gamepad2, Coffee, Sparkles, Gift, Bot, Wrench, Package,
+  TrendingUp, DollarSign, ArrowRight,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { AccountWithHoldings } from "@/app/api/accounts/holdings-with-prices/route";
+import { BottomNav } from "@/components/bottom-nav";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -34,8 +37,6 @@ interface RawTx {
 }
 
 interface PointsBalance { program: string; balance: number; cpp?: number; }
-interface SpendData { expenses: number; categories: Record<string, number>; txCount: number; }
-type Tab = "overview" | "spending" | "income" | "portfolio";
 type AcctGroup = "cash" | "credit" | "investment" | "retirement" | "hsa";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -73,24 +74,46 @@ function cleanMerchant(raw: string | null) {
 // ─── Account Classification ────────────────────────────────────────────────
 
 function classifyAccount(b: CardBalance): AcctGroup {
+  // Trust Plaid's explicit type first
   if (b.account_type === "credit") return "credit";
-  if (b.account_subtype === "hsa") return "hsa";
-  if (b.account_type === "investment") {
+  if (b.account_subtype === "hsa")  return "hsa";
+  if (b.account_type === "investment" || b.account_type === "brokerage") {
     const sub = (b.account_subtype ?? "").toLowerCase();
     if (sub.includes("401") || sub.includes("ira") || sub.includes("roth") ||
         sub.includes("pension") || sub.includes("retirement")) return "retirement";
     return "investment";
   }
   if (b.account_type === "depository") return "cash";
-  if (b.credit_limit !== null) return "credit";
+
+  // Fallback: credit_limit present → definitely a credit card
+  if (b.credit_limit !== null && b.credit_limit > 0) return "credit";
+
+  // Name-based fallback (handles accounts synced before migration 0005)
   const n = (b.name ?? "").toLowerCase();
+
+  // Credit cards — common issuer product names
+  if (n.includes("credit card") || n.includes("sapphire") || n.includes("freedom") ||
+      n.includes("venture x") || n.includes("venture") || n.includes("boundless") ||
+      n.includes("bonvoy") || n.includes("reserve") || n.includes("preferred") ||
+      n.includes("unlimited") || n.includes("cashback") || n.includes("cash back") ||
+      n.includes("mastercard") || n.includes("visa credit") || n.includes("amex") ||
+      n.includes("discover it")) return "credit";
+
+  // Retirement
   if (n.includes("401") || n.includes("roth") || n.match(/\bira\b/) ||
       n.includes("retirement") || n.includes("pension") || n.includes("403b")) return "retirement";
+
+  // HSA
   if (n.includes("hsa") || n.includes("health savings")) return "hsa";
+
+  // Investment / brokerage
   if (n.includes("brokerage") || n.includes("invest") || n.includes("portfolio") ||
       n.includes("etrade") || n.includes("schwab") || n.includes("fidelity") ||
-      n.includes("merrill") || n.includes("vanguard") || n.includes("ubs") || n.includes("robinhood"))
+      n.includes("merrill") || n.includes("vanguard") || n.includes("ubs") ||
+      n.includes("robinhood") || n.includes("wealthfront") || n.includes("betterment"))
     return "investment";
+
+  // Default to cash (checking, savings, Marcus, etc.)
   return "cash";
 }
 
@@ -98,22 +121,22 @@ function classifyAccount(b: CardBalance): AcctGroup {
 
 function getBrand(name: string | null) {
   const n = (name ?? "").toLowerCase();
-  if (n.includes("chase"))       return { bg: "#117ACA", fg: "#fff", initials: "C"  };
-  if (n.includes("capital one")) return { bg: "#C41230", fg: "#fff", initials: "C1" };
-  if (n.includes("fidelity"))    return { bg: "#52B043", fg: "#fff", initials: "Fi" };
+  if (n.includes("chase"))         return { bg: "#117ACA", fg: "#fff", initials: "C"  };
+  if (n.includes("capital one"))   return { bg: "#C41230", fg: "#fff", initials: "C1" };
+  if (n.includes("fidelity"))      return { bg: "#52B043", fg: "#fff", initials: "Fi" };
   if (n.includes("merrill") || n.includes("bofa") || n.includes("bank of america"))
-                                 return { bg: "#D70015", fg: "#fff", initials: "ML" };
+                                   return { bg: "#D70015", fg: "#fff", initials: "ML" };
   if (n.includes("marcus") || n.includes("goldman"))
-                                 return { bg: "#1A1A1A", fg: "#fff", initials: "GS" };
-  if (n.includes("schwab"))      return { bg: "#0577B6", fg: "#fff", initials: "CS" };
-  if (n.includes("vanguard"))    return { bg: "#811A24", fg: "#fff", initials: "VG" };
-  if (n.includes("ubs"))         return { bg: "#E40046", fg: "#fff", initials: "UB" };
-  if (n.includes("inspira"))     return { bg: "#1E5A96", fg: "#fff", initials: "In" };
-  if (n.includes("wells"))       return { bg: "#D71E28", fg: "#fff", initials: "WF" };
-  if (n.includes("ally"))        return { bg: "#6B21A8", fg: "#fff", initials: "Al" };
-  if (n.includes("discover"))    return { bg: "#F76F20", fg: "#fff", initials: "Di" };
+                                   return { bg: "#1A1A1A", fg: "#fff", initials: "GS" };
+  if (n.includes("schwab"))        return { bg: "#0577B6", fg: "#fff", initials: "CS" };
+  if (n.includes("vanguard"))      return { bg: "#811A24", fg: "#fff", initials: "VG" };
+  if (n.includes("ubs"))           return { bg: "#E40046", fg: "#fff", initials: "UB" };
+  if (n.includes("inspira"))       return { bg: "#1E5A96", fg: "#fff", initials: "In" };
+  if (n.includes("wells"))         return { bg: "#D71E28", fg: "#fff", initials: "WF" };
+  if (n.includes("ally"))          return { bg: "#6B21A8", fg: "#fff", initials: "Al" };
+  if (n.includes("discover"))      return { bg: "#F76F20", fg: "#fff", initials: "Di" };
   if (n.includes("amex") || n.includes("american express"))
-                                 return { bg: "#007BC1", fg: "#fff", initials: "AX" };
+                                   return { bg: "#007BC1", fg: "#fff", initials: "AX" };
   return { bg: "#6B7280", fg: "#fff", initials: (name?.[0] ?? "?").toUpperCase() };
 }
 
@@ -128,17 +151,46 @@ function Avatar({ name, size = "md" }: { name: string | null; size?: "sm" | "md"
   );
 }
 
-// ─── Category emoji ────────────────────────────────────────────────────────
+// ─── Category icons (no emojis) ────────────────────────────────────────────
 
-const EMOJI: Record<string, string> = {
-  Food: "🍽️", Drinks: "🍺", Housing: "🏠", Transportation: "🚗",
-  Entertainment: "🎬", Travel: "✈️", "Personal Care": "💇", Health: "❤️",
-  Gifts: "🎁", Shopping: "🛍️", Services: "⚙️", "AI Spend": "🤖", Other: "💸",
-  FOOD_AND_DRINK: "🍽️", TRANSPORTATION: "🚗", ENTERTAINMENT: "🎬",
-  PERSONAL_CARE: "💇", TRAVEL: "✈️", RENT_AND_UTILITIES: "🏠",
-  MEDICAL: "❤️", GENERAL_MERCHANDISE: "🛍️", SHOPPING: "🛍️",
-  GENERAL_SERVICES: "⚙️", INCOME: "💰",
+type LucideIcon = React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>;
+
+const CAT_ICON: Record<string, { Icon: LucideIcon; color: string }> = {
+  Food:           { Icon: UtensilsCrossed, color: "#f97316" },
+  Drinks:         { Icon: Coffee,          color: "#a78bfa" },
+  Housing:        { Icon: Home,            color: "#6366f1" },
+  Transportation: { Icon: Car,             color: "#3b82f6" },
+  Entertainment:  { Icon: Gamepad2,        color: "#ec4899" },
+  Travel:         { Icon: Plane,           color: "#0ea5e9" },
+  "Personal Care":{ Icon: Sparkles,        color: "#14b8a6" },
+  Health:         { Icon: Heart,           color: "#22c55e" },
+  Gifts:          { Icon: Gift,            color: "#f59e0b" },
+  "AI Spend":     { Icon: Bot,             color: "#8b5cf6" },
+  Shopping:       { Icon: ShoppingBag,     color: "#f43f5e" },
+  Services:       { Icon: Wrench,          color: "#64748b" },
+  Income:         { Icon: DollarSign,      color: "#22c55e" },
+  Other:          { Icon: Package,         color: "#94a3b8" },
+  FOOD_AND_DRINK: { Icon: UtensilsCrossed, color: "#f97316" },
+  TRANSPORTATION: { Icon: Car,             color: "#3b82f6" },
+  ENTERTAINMENT:  { Icon: Gamepad2,        color: "#ec4899" },
+  TRAVEL:         { Icon: Plane,           color: "#0ea5e9" },
+  RENT_AND_UTILITIES: { Icon: Home,        color: "#6366f1" },
+  MEDICAL:        { Icon: Heart,           color: "#22c55e" },
+  GENERAL_MERCHANDISE: { Icon: ShoppingBag, color: "#f43f5e" },
+  SHOPPING:       { Icon: ShoppingBag,     color: "#f43f5e" },
+  GENERAL_SERVICES: { Icon: Wrench,        color: "#64748b" },
 };
+
+function CategoryIcon({ category }: { category: string | null }) {
+  const def = CAT_ICON[category ?? ""] ?? CAT_ICON["Other"];
+  const { Icon, color } = def;
+  return (
+    <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+      style={{ backgroundColor: color + "18" }}>
+      <Icon size={15} style={{ color }} />
+    </div>
+  );
+}
 
 const PROG_BRAND: Record<string, { bg: string; initials: string }> = {
   "Chase UR":        { bg: "#117ACA", initials: "C"  },
@@ -147,14 +199,14 @@ const PROG_BRAND: Record<string, { bg: string; initials: string }> = {
   "Amex MR":         { bg: "#C9A84C", initials: "AX" },
 };
 
-// ─── Reusable components ───────────────────────────────────────────────────
+// ─── Account row ───────────────────────────────────────────────────────────
 
 function AccountRow({ acct }: { acct: CardBalance }) {
   const isCard = classifyAccount(acct) === "credit";
   const bal = acct.current_balance ?? 0;
   const util = acct.utilization_pct;
   const utilColor = util != null
-    ? (util > 30 ? "text-destructive" : util > 9 ? "text-warning" : "text-success") : "";
+    ? (util > 30 ? "text-destructive" : util > 9 ? "text-amber-500" : "text-emerald-500") : "";
   return (
     <div className="flex items-center gap-3 py-3">
       <Avatar name={acct.name} size="sm" />
@@ -182,13 +234,14 @@ function AccountRow({ acct }: { acct: CardBalance }) {
   );
 }
 
-// Collapsible account group — hooks at top level of THIS component, not inline
+// ─── Collapsible account group ─────────────────────────────────────────────
+
 function AccountSection({
-  title, accounts, total, isLiability,
+  title, accounts, total, isLiability, startOpen = true,
 }: {
-  title: string; accounts: CardBalance[]; total: number; isLiability?: boolean;
+  title: string; accounts: CardBalance[]; total: number; isLiability?: boolean; startOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(startOpen);
   if (!accounts.length) return null;
   return (
     <div className="border-b border-border/50 last:border-0">
@@ -213,7 +266,8 @@ function AccountSection({
   );
 }
 
-// Investment section with manual accounts + holdings — proper component
+// ─── Investment section ────────────────────────────────────────────────────
+
 function InvestmentSection({
   plaidAccounts, manualAccounts, total,
 }: {
@@ -238,7 +292,7 @@ function InvestmentSection({
     <div className="border-b border-border/50 last:border-0">
       <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between py-3">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-foreground">Investment</span>
+          <span className="text-xs font-bold text-foreground">Brokerage</span>
           <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{count}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -259,7 +313,7 @@ function InvestmentSection({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <p className="text-sm font-medium text-foreground truncate">{a.name}</p>
-                      {a.liveValue !== null && <span className="text-[9px] font-bold bg-success/10 text-success px-1 py-0.5 rounded-full">Live</span>}
+                      {a.liveValue !== null && <span className="text-[9px] font-bold bg-emerald-500/10 text-emerald-600 px-1 py-0.5 rounded-full">Live</span>}
                     </div>
                     {a.institution && <p className="text-[10px] text-muted-foreground">{a.institution}</p>}
                   </div>
@@ -286,7 +340,7 @@ function InvestmentSection({
                         <div className="text-right shrink-0">
                           <p className="text-[11px] font-semibold">{h.liveValue != null ? `$${fmt(h.liveValue)}` : "—"}</p>
                           {h.gainLoss != null && (
-                            <p className={`text-[10px] ${h.gainLoss >= 0 ? "text-success" : "text-destructive"}`}>
+                            <p className={`text-[10px] ${h.gainLoss >= 0 ? "text-emerald-500" : "text-destructive"}`}>
                               {h.gainLoss >= 0 ? "+" : ""}${fmt(Math.abs(h.gainLoss))}
                             </p>
                           )}
@@ -304,17 +358,25 @@ function InvestmentSection({
   );
 }
 
+// ─── Month picker — oldest on LEFT, newest on RIGHT ────────────────────────
+
 function MonthPicker({ selected, onChange }: { selected: string; onChange: (m: string) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const months: Array<{ yyyyMM: string; label: string }> = [];
   const now = new Date();
-  for (let i = 0; i < 6; i++) {
+  // Build oldest→newest (5 months ago → current)
+  for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     months.push({
       yyyyMM: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
       label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
     });
   }
+  // Auto-scroll to end (current month) on mount
+  useEffect(() => {
+    if (ref.current) ref.current.scrollLeft = ref.current.scrollWidth;
+  }, []);
+
   return (
     <div ref={ref} className="flex gap-1.5 overflow-x-auto scrollbar-hide -mx-5 px-5 pb-0.5">
       {months.map(m => (
@@ -329,28 +391,14 @@ function MonthPicker({ selected, onChange }: { selected: string; onChange: (m: s
   );
 }
 
-function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
-  return (
-    <div className="flex border-b border-border bg-background sticky top-0 z-10">
-      {(["overview","spending","income","portfolio"] as Tab[]).map(t => (
-        <button key={t} onClick={() => onChange(t)}
-          className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 capitalize ${
-            active === t ? "text-primary border-primary" : "text-muted-foreground border-transparent hover:text-foreground"
-          }`}>
-          {t === "spending" ? "Expenses" : t.charAt(0).toUpperCase() + t.slice(1)}
-        </button>
-      ))}
-    </div>
-  );
-}
+// ─── Transaction row (dashboard preview) ──────────────────────────────────
 
 function TxRow({ tx, acctMap }: { tx: RawTx; acctMap: Record<string, string | null> }) {
   const acctName = acctMap[tx.plaid_account_id ?? ""] ?? null;
   const brand = getBrand(acctName);
-  const isDebit = tx.amount > 0;
   return (
     <div className="py-3 flex items-center gap-3 first:pt-0">
-      <span className="text-lg w-7 text-center shrink-0">{EMOJI[tx.category ?? ""] ?? "💸"}</span>
+      <CategoryIcon category={tx.category} />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-foreground truncate">{cleanMerchant(tx.merchant_raw)}</p>
         <div className="flex items-center gap-1.5 mt-0.5">
@@ -363,27 +411,47 @@ function TxRow({ tx, acctMap }: { tx: RawTx; acctMap: Record<string, string | nu
           <span className="text-[10px] text-muted-foreground">{relDate(tx.posted_at)}</span>
         </div>
       </div>
-      <p className={`text-sm font-bold shrink-0 ${isDebit ? "text-foreground" : "text-success"}`}>
-        {isDebit ? "−" : "+"}${fmt(Math.abs(tx.amount), 2)}
+      <p className="text-sm font-bold shrink-0 text-foreground">
+        −${fmt(Math.abs(tx.amount), 2)}
       </p>
     </div>
+  );
+}
+
+// ─── Quick-stat card ───────────────────────────────────────────────────────
+
+function QuickCard({
+  label, value, sub, href, color = "text-foreground",
+}: {
+  label: string; value: string; sub?: string; href: string; color?: string;
+}) {
+  return (
+    <Link href={href}
+      className="flex-1 rounded-2xl border border-border bg-card px-4 py-4 flex flex-col gap-1 active:opacity-70 transition-opacity">
+      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{label}</p>
+      <p className={`text-xl font-extrabold ${color}`}>{value}</p>
+      {sub && <p className="text-[10px] text-muted-foreground">{sub}</p>}
+      <div className="flex items-center gap-1 mt-1 text-[10px] text-primary font-semibold">
+        View <ArrowRight size={10} />
+      </div>
+    </Link>
   );
 }
 
 // ─── Main page ─────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const [tab, setTab]                       = useState<Tab>("overview");
   const [balances, setBalances]             = useState<CardBalance[]>([]);
   const [manualAccounts, setManualAccounts] = useState<AccountWithHoldings[]>([]);
   const [recentTxs, setRecentTxs]           = useState<RawTx[]>([]);
   const [points, setPoints]                 = useState<PointsBalance[]>([]);
-  const [spend, setSpend]                   = useState<SpendData | null>(null);
-  const [income, setIncome]                 = useState<RawTx[]>([]);
-  const [spendMonth, setSpendMonth]         = useState(currentYYYYMM());
-  const [spendLoading, setSpendLoading]     = useState(false);
   const [lastSync, setLastSync]             = useState<string | null>(null);
   const [loading, setLoading]               = useState(true);
+
+  // Spending summary (current month only — for quick stat)
+  const [spendMonth, setSpendMonth] = useState(currentYYYYMM());
+  const [monthExpenses, setMonthExpenses] = useState<number | null>(null);
+  const [monthIncome, setMonthIncome] = useState<number | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -398,6 +466,7 @@ export default function DashboardPage() {
         .select("id,posted_at,amount,merchant_raw,category,plaid_account_id")
         .eq("pending", false)
         .gt("amount", 0)
+        .not("category", "in", '("TRANSFER_IN","TRANSFER_OUT","PAYMENT","LOAN_PAYMENTS","INCOME")')
         .order("posted_at", { ascending: false })
         .limit(8),
       fetch("/api/points-balances").then(r => r.json()).catch(() => ({ balances: [] })),
@@ -407,7 +476,9 @@ export default function DashboardPage() {
         const times = bals.map((b: CardBalance) => b.as_of).filter(Boolean) as string[];
         if (times.length) {
           const latest = times.sort().at(-1)!;
-          setLastSync(new Date(latest).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }));
+          setLastSync(new Date(latest).toLocaleDateString("en-US", {
+            month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+          }));
         }
       }
       if (holdingsRes?.accounts) setManualAccounts(holdingsRes.accounts);
@@ -417,33 +488,29 @@ export default function DashboardPage() {
     });
   }, []);
 
-  const fetchMonthData = useCallback((month: string) => {
-    setSpend(null);
-    setSpendLoading(true);
+  // Fetch month summary for quick stats
+  const fetchMonthSummary = useCallback((month: string) => {
     const supabase = createClient();
     const [y, m] = month.split("-").map(Number);
-    const start = `${y}-${String(m).padStart(2, "0")}-01`;
+    const start  = `${y}-${String(m).padStart(2, "0")}-01`;
     const lastDay = new Date(y, m, 0).getDate();
-    const end = `${y}-${String(m).padStart(2, "0")}-${lastDay}`;
+    const end    = `${y}-${String(m).padStart(2, "0")}-${lastDay}`;
+
     Promise.all([
       fetch(`/api/transactions/summary?month=${month}`).then(r => r.json()).catch(() => null),
-      supabase
-        .from("transactions")
-        .select("id,posted_at,amount,merchant_raw,category,plaid_account_id")
+      supabase.from("transactions")
+        .select("amount")
         .eq("pending", false)
         .lt("amount", 0)
         .not("category", "in", '("TRANSFER_IN","TRANSFER_OUT","PAYMENT","LOAN_PAYMENTS")')
-        .gte("posted_at", start)
-        .lte("posted_at", end)
-        .order("posted_at", { ascending: false }),
-    ]).then(([spendRes, { data: incomeTxs }]) => {
-      if (spendRes) setSpend(spendRes);
-      if (incomeTxs) setIncome(incomeTxs);
-      setSpendLoading(false);
+        .gte("posted_at", start).lte("posted_at", end),
+    ]).then(([spendRes, { data: incTxs }]) => {
+      if (spendRes?.expenses != null) setMonthExpenses(spendRes.expenses);
+      if (incTxs) setMonthIncome(incTxs.reduce((s: number, t: { amount: number }) => s + Math.abs(t.amount), 0));
     });
   }, []);
 
-  useEffect(() => { fetchMonthData(spendMonth); }, [spendMonth, fetchMonthData]);
+  useEffect(() => { fetchMonthSummary(spendMonth); }, [spendMonth, fetchMonthSummary]);
 
   // ── Derived ──────────────────────────────────────────────────────────────
 
@@ -454,6 +521,7 @@ export default function DashboardPage() {
     retirement: balances.filter(b => classifyAccount(b) === "retirement"),
     hsa:        balances.filter(b => classifyAccount(b) === "hsa"),
   };
+
   const manualRetirement = manualAccounts.filter(a => a.account_type === "retirement");
   const manualHsa        = manualAccounts.filter(a => a.account_type === "hsa");
   const manualInvest     = manualAccounts.filter(a => !["retirement","hsa"].includes(a.account_type));
@@ -474,341 +542,28 @@ export default function DashboardPage() {
   const hasData     = balances.length > 0 || manualAccounts.length > 0;
   const totalPoints = points.reduce((s, p) => s + ((p.balance * (p.cpp ?? 1)) / 100), 0);
   const acctMap     = Object.fromEntries(balances.map(b => [b.plaid_account_id, b.name]));
-  const monthIncome = income.reduce((s, t) => s + Math.abs(t.amount), 0);
+  const allAccountCount = Object.values(byGroup).reduce((s, g) => s + g.length, 0) + manualAccounts.length;
 
   if (loading) {
     return (
       <div className="flex flex-col min-h-screen pb-24 max-w-lg mx-auto animate-pulse">
-        <div className="px-4 pt-5 pb-3"><div className="h-6 w-32 rounded-lg bg-muted mb-1.5" /><div className="h-3 w-24 rounded bg-muted" /></div>
-        <div className="h-10 bg-muted" />
-        <div className="px-4 pt-4 flex flex-col gap-3">
-          <div className="h-36 rounded-2xl bg-muted" />
-          <div className="h-48 rounded-2xl bg-muted" />
+        <div className="px-4 pt-5 pb-3">
+          <div className="h-6 w-32 rounded-lg bg-muted mb-1.5" />
+          <div className="h-3 w-24 rounded bg-muted" />
+        </div>
+        <div className="px-4 pt-2 flex flex-col gap-3">
           <div className="h-40 rounded-2xl bg-muted" />
+          <div className="h-48 rounded-2xl bg-muted" />
+          <div className="h-32 rounded-2xl bg-muted" />
         </div>
       </div>
     );
   }
 
-  // ── Overview tab ──────────────────────────────────────────────────────────
-
-  const Overview = (
-    <div className="flex flex-col gap-4 px-4 pt-4">
-      {!hasData && (
-        <div className="rounded-2xl border-2 border-dashed border-border p-10 flex flex-col items-center text-center gap-3">
-          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-            <Building2 size={28} className="text-primary" />
-          </div>
-          <p className="font-bold text-lg text-foreground">Connect your accounts</p>
-          <p className="text-sm text-muted-foreground max-w-xs">Link your banks and credit cards to see balances, transactions, and net worth.</p>
-          <Link href="/settings/accounts" className="bg-primary text-white text-sm font-semibold px-6 py-3 rounded-xl">Connect Accounts</Link>
-        </div>
-      )}
-
-      {hasData && (
-        <>
-          {/* NW Hero */}
-          <div className="rounded-2xl border border-border bg-card overflow-hidden">
-            <div className="px-5 pt-5 pb-4">
-              <div className="flex items-start justify-between mb-1">
-                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Net Worth</p>
-                <Link href="/strategy/projection" className="flex items-center gap-1 text-[10px] text-primary font-semibold">
-                  10-yr projection <ArrowUpRight size={10} />
-                </Link>
-              </div>
-              <p className="text-4xl font-extrabold text-foreground tracking-tight mt-1">{fmtK(netWorth)}</p>
-              <div className="flex gap-5 mt-3 flex-wrap">
-                <div><p className="text-[10px] text-muted-foreground">Assets</p><p className="text-sm font-bold text-success">{fmtK(totalAssets)}</p></div>
-                <div className="w-px bg-border" />
-                <div><p className="text-[10px] text-muted-foreground">Debt</p><p className="text-sm font-bold text-destructive">{fmtK(totals.credit)}</p></div>
-                {totals.cash > 0 && <><div className="w-px bg-border" /><div><p className="text-[10px] text-muted-foreground">Cash</p><p className="text-sm font-bold text-foreground">{fmtK(totals.cash)}</p></div></>}
-              </div>
-            </div>
-            {totalAssets > 0 && (
-              <div className="px-5 pb-4 border-t border-border/40 pt-3">
-                <div className="flex h-1.5 rounded-full overflow-hidden gap-px">
-                  {([
-                    { val: totals.cash, color: "#117ACA" },
-                    { val: totals.hsa,  color: "#22c55e" },
-                    { val: totals.retirement, color: "#3b82f6" },
-                    { val: totals.investment, color: "#8b5cf6" },
-                  ] as { val: number; color: string }[]).filter(s => s.val > 0).map((s, i) => (
-                    <div key={i} className="h-full" style={{ width: `${(s.val / totalAssets) * 100}%`, backgroundColor: s.color }} />
-                  ))}
-                </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-                  {[
-                    { label: "Cash",       val: totals.cash,       color: "#117ACA" },
-                    { label: "HSA",        val: totals.hsa,        color: "#22c55e" },
-                    { label: "Retirement", val: totals.retirement, color: "#3b82f6" },
-                    { label: "Invested",   val: totals.investment, color: "#8b5cf6" },
-                  ].filter(s => s.val > 0).map(s => (
-                    <div key={s.label} className="flex items-center gap-1.5">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
-                      <span className="text-[10px] text-muted-foreground">{s.label} <span className="font-semibold text-foreground">{fmtK(s.val)}</span></span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* All Accounts */}
-          <div className="rounded-2xl border border-border bg-card px-5 py-4">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">All Accounts</p>
-              <Link href="/settings/accounts" className="text-[11px] text-primary font-semibold flex items-center gap-1">
-                Manage <ChevronRight size={11} />
-              </Link>
-            </div>
-            <AccountSection title="Cash & Savings"  accounts={byGroup.cash}       total={totals.cash}       />
-            <AccountSection title="HSA"              accounts={byGroup.hsa}        total={totals.hsa}        />
-            <AccountSection title="Retirement"       accounts={byGroup.retirement} total={totals.retirement} />
-            <InvestmentSection
-              plaidAccounts={byGroup.investment}
-              manualAccounts={manualInvest}
-              total={totals.investment}
-            />
-            <AccountSection title="Credit Cards" accounts={byGroup.credit} total={totals.credit} isLiability />
-          </div>
-
-          {/* Recent activity */}
-          {recentTxs.length > 0 && (
-            <div className="rounded-2xl border border-border bg-card px-5 py-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Recent Activity</p>
-                <Link href="/transactions" className="text-[11px] text-primary font-semibold flex items-center gap-1">
-                  All transactions <ChevronRight size={11} />
-                </Link>
-              </div>
-              <div className="flex flex-col divide-y divide-border/50">
-                {recentTxs.map(tx => <TxRow key={tx.id} tx={tx} acctMap={acctMap} />)}
-              </div>
-            </div>
-          )}
-
-          {/* Points */}
-          {points.length > 0 && (
-            <div className="rounded-2xl border border-border bg-card px-5 py-4">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Rewards Points</p>
-                <Link href="/strategy/points" className="text-[11px] text-primary font-semibold flex items-center gap-1">Manage <ChevronRight size={11} /></Link>
-              </div>
-              <div className="flex items-baseline justify-between mt-2 mb-4">
-                <p className="text-2xl font-extrabold text-foreground">~${fmt(totalPoints)}</p>
-                <Link href="/strategy/deals" className="flex items-center gap-1 text-[11px] text-primary font-semibold bg-primary/10 px-2.5 py-1.5 rounded-xl">
-                  <Coins size={11} />Best deals →
-                </Link>
-              </div>
-              <div className="flex flex-col divide-y divide-border/50">
-                {points.map(p => {
-                  const estVal = (p.balance * (p.cpp ?? 1)) / 100;
-                  const brand = PROG_BRAND[p.program] ?? { bg: "#6B7280", initials: "?" };
-                  return (
-                    <div key={p.program} className="py-3 flex items-center gap-3 first:pt-0">
-                      <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-extrabold text-white shrink-0" style={{ background: brand.bg }}>{brand.initials}</div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-foreground">{p.program}</p>
-                        <p className="text-[10px] text-muted-foreground">{p.cpp ?? 1}¢ / pt</p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-sm font-bold text-foreground">{fmt(p.balance)}</p>
-                        <p className="text-[10px] text-muted-foreground">~${fmt(estVal)}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-
-  // ── Spending tab ──────────────────────────────────────────────────────────
-
-  const Spending = (
-    <div className="flex flex-col gap-4 px-4 pt-4">
-      <div className="rounded-2xl border border-border bg-card px-5 py-4">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Expenses</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{monthLabel(spendMonth)}</p>
-          </div>
-          <Link href="/transactions" className="text-[11px] text-primary font-semibold flex items-center gap-1">All <ChevronRight size={11} /></Link>
-        </div>
-        <MonthPicker selected={spendMonth} onChange={setSpendMonth} />
-        <div className="mt-4">
-          {spendLoading && <div className="animate-pulse flex flex-col gap-2">{[1,2,3,4].map(i=><div key={i} className="h-8 rounded-lg bg-muted"/>)}</div>}
-          {!spendLoading && (!spend || spend.txCount === 0) && (
-            <div className="py-8 text-center"><p className="text-sm text-muted-foreground">No expenses for this month</p></div>
-          )}
-          {!spendLoading && spend && spend.txCount > 0 && (
-            <>
-              <div className="flex items-baseline justify-between mb-4">
-                <p className="text-3xl font-extrabold text-foreground">${fmt(spend.expenses)}</p>
-                <p className="text-[11px] text-muted-foreground">{spend.txCount} transactions</p>
-              </div>
-              <div className="flex flex-col gap-3">
-                {Object.entries(spend.categories).sort((a,b)=>b[1]-a[1]).map(([cat,amt])=>{
-                  const pct = (amt / spend.expenses) * 100;
-                  return (
-                    <div key={cat} className="flex items-center gap-3">
-                      <span className="text-base w-7 text-center shrink-0">{EMOJI[cat]??"💸"}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-semibold text-foreground">{cat}</span>
-                          <span className="text-xs font-bold text-foreground">${fmt(amt)}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                            <div className="h-full rounded-full bg-primary/70" style={{width:`${pct}%`}}/>
-                          </div>
-                          <span className="text-[10px] text-muted-foreground w-8 text-right shrink-0">{pct.toFixed(0)}%</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-
-  // ── Income tab ────────────────────────────────────────────────────────────
-
-  const Income = (
-    <div className="flex flex-col gap-4 px-4 pt-4">
-      <div className="rounded-2xl border border-border bg-card px-5 py-4">
-        <div className="mb-3">
-          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Income</p>
-          <p className="text-xs text-muted-foreground mt-0.5">{monthLabel(spendMonth)}</p>
-        </div>
-        <MonthPicker selected={spendMonth} onChange={setSpendMonth} />
-        <div className="mt-4">
-          {spendLoading && <div className="animate-pulse flex flex-col gap-2">{[1,2,3].map(i=><div key={i} className="h-10 rounded-lg bg-muted"/>)}</div>}
-          {!spendLoading && income.length === 0 && (
-            <div className="py-8 text-center">
-              <p className="text-sm text-muted-foreground">No income transactions found</p>
-              <p className="text-xs text-muted-foreground mt-1">Income appears as credits from connected accounts</p>
-            </div>
-          )}
-          {!spendLoading && income.length > 0 && (
-            <>
-              <div className="flex items-baseline justify-between mb-4">
-                <p className="text-3xl font-extrabold text-success">${fmt(monthIncome)}</p>
-                <p className="text-[11px] text-muted-foreground">{income.length} deposits</p>
-              </div>
-              <div className="flex flex-col divide-y divide-border/50">
-                {income.map(tx => <TxRow key={tx.id} tx={tx} acctMap={acctMap} />)}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-      {spend && income.length > 0 && (
-        <div className="rounded-2xl border border-border bg-card px-5 py-4">
-          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Month Summary</p>
-          {[
-            { label: "Income",  val: monthIncome,                    color: "text-success",     bar: "bg-success"     },
-            { label: "Spent",   val: spend.expenses,                  color: "text-destructive", bar: "bg-destructive" },
-            { label: "Net",     val: monthIncome - spend.expenses,     color: monthIncome - spend.expenses >= 0 ? "text-success" : "text-destructive", bar: "bg-primary" },
-          ].map(r => (
-            <div key={r.label} className="flex items-center justify-between mb-2.5 last:mb-0">
-              <span className="text-sm text-muted-foreground w-14">{r.label}</span>
-              <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden mx-3">
-                <div className={`h-full ${r.bar} rounded-full`}
-                  style={{ width: `${Math.min(Math.abs(r.val) / Math.max(monthIncome, spend.expenses, 1) * 100, 100)}%` }} />
-              </div>
-              <span className={`text-sm font-bold ${r.color} w-20 text-right`}>{r.val < 0 ? "−" : ""}${fmt(Math.abs(r.val))}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-
-  // ── Portfolio tab ─────────────────────────────────────────────────────────
-
-  const Portfolio = (
-    <div className="flex flex-col gap-4 px-4 pt-4">
-      <div className="rounded-2xl border border-border bg-card px-5 py-4">
-        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Total Invested</p>
-        <p className="text-3xl font-extrabold text-foreground">{fmtK(totals.investment + totals.retirement + totals.hsa)}</p>
-        <div className="flex gap-5 mt-3 flex-wrap">
-          {totals.retirement > 0 && <div><p className="text-[10px] text-muted-foreground">Retirement</p><p className="text-sm font-bold text-blue-600">{fmtK(totals.retirement)}</p></div>}
-          {totals.investment > 0 && <><div className="w-px bg-border" /><div><p className="text-[10px] text-muted-foreground">Brokerage</p><p className="text-sm font-bold text-violet-600">{fmtK(totals.investment)}</p></div></>}
-          {totals.hsa > 0 && <><div className="w-px bg-border" /><div><p className="text-[10px] text-muted-foreground">HSA</p><p className="text-sm font-bold text-emerald-600">{fmtK(totals.hsa)}</p></div></>}
-        </div>
-      </div>
-
-      {byGroup.retirement.length + manualRetirement.length > 0 && (
-        <div className="rounded-2xl border border-border bg-card px-5 py-4">
-          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Retirement</p>
-          <div className="flex flex-col divide-y divide-border/50">
-            {byGroup.retirement.map(a => <AccountRow key={a.plaid_account_id} acct={a} />)}
-            {manualRetirement.map(a => (
-              <div key={a.id} className="py-3 flex items-center gap-3 first:pt-0">
-                <Avatar name={a.name} size="sm" />
-                <p className="flex-1 text-sm font-medium text-foreground truncate">{a.name}</p>
-                <p className="text-sm font-semibold text-foreground">${fmt(a.liveValue ?? a.balance)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <InvestmentSection
-        plaidAccounts={byGroup.investment}
-        manualAccounts={manualInvest}
-        total={totals.investment}
-      />
-
-      {byGroup.hsa.length + manualHsa.length > 0 && (
-        <div className="rounded-2xl border border-border bg-card px-5 py-4">
-          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-1">HSA</p>
-          <div className="flex flex-col divide-y divide-border/50">
-            {byGroup.hsa.map(a => <AccountRow key={a.plaid_account_id} acct={a} />)}
-            {manualHsa.map(a => (
-              <div key={a.id} className="py-3 flex items-center gap-3 first:pt-0">
-                <Avatar name={a.name} size="sm" />
-                <p className="flex-1 text-sm font-medium text-foreground truncate">{a.name}</p>
-                <p className="text-sm font-semibold text-foreground">${fmt(a.liveValue ?? a.balance)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="rounded-2xl border border-border bg-card px-5 py-4">
-        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Planning</p>
-        <div className="flex flex-col divide-y divide-border/50">
-          {[
-            { href: "/strategy/projection", label: "NW Projection",   sub: "10-year trajectory" },
-            { href: "/dashboard/savings",   label: "Savings Plan",     sub: "Where should your next dollar go?" },
-            { href: "/strategy/portfolio",  label: "Portfolio Detail", sub: "Holdings & allocation breakdown" },
-          ].map(({ href, label, sub }) => (
-            <Link key={href} href={href} className="flex items-center justify-between py-3 first:pt-0 hover:opacity-70 transition-opacity">
-              <div>
-                <p className="text-sm font-semibold text-foreground">{label}</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>
-              </div>
-              <ChevronRight size={14} className="text-muted-foreground shrink-0" />
-            </Link>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-
-  // ── Render ────────────────────────────────────────────────────────────────
-
   return (
     <div className="flex flex-col min-h-screen pb-28 max-w-lg mx-auto">
+
+      {/* Header */}
       <div className="px-4 pt-5 pb-3 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-foreground">Dashboard</h1>
@@ -818,17 +573,211 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
-        <Link href="/strategy/projection" className="flex items-center gap-1 text-[11px] text-primary font-semibold bg-primary/10 px-2.5 py-1.5 rounded-xl">
-          <TrendingUp size={11} />Projection
+        <Link href="/strategy/portfolio" className="flex items-center gap-1 text-[11px] text-primary font-semibold bg-primary/10 px-2.5 py-1.5 rounded-xl">
+          <TrendingUp size={11} />Portfolio
         </Link>
       </div>
 
-      <TabBar active={tab} onChange={setTab} />
+      <div className="flex flex-col gap-4 px-4">
 
-      {tab === "overview"  && Overview}
-      {tab === "spending"  && Spending}
-      {tab === "income"    && Income}
-      {tab === "portfolio" && Portfolio}
+        {/* ── Empty state ───────────────────────────────────────────────── */}
+        {!hasData && (
+          <div className="rounded-2xl border-2 border-dashed border-border p-10 flex flex-col items-center text-center gap-3">
+            <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+              <Building2 size={28} className="text-primary" />
+            </div>
+            <p className="font-bold text-lg text-foreground">Connect your accounts</p>
+            <p className="text-sm text-muted-foreground max-w-xs">
+              Link Chase, Marcus, Merrill, Fidelity and more to see your full financial picture.
+            </p>
+            <Link href="/settings/accounts"
+              className="bg-primary text-white text-sm font-semibold px-6 py-3 rounded-xl">
+              Connect Accounts
+            </Link>
+          </div>
+        )}
+
+        {hasData && (
+          <>
+            {/* ── Net Worth hero ──────────────────────────────────────── */}
+            <div className="rounded-2xl border border-border bg-card overflow-hidden">
+              <div className="px-5 pt-5 pb-4">
+                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Net Worth</p>
+                <p className="text-4xl font-extrabold text-foreground tracking-tight mt-1">{fmtK(netWorth)}</p>
+                <div className="flex gap-5 mt-3 flex-wrap">
+                  <div>
+                    <p className="text-[10px] text-muted-foreground">Assets</p>
+                    <p className="text-sm font-bold text-emerald-500">{fmtK(totalAssets)}</p>
+                  </div>
+                  {totals.credit > 0 && (
+                    <>
+                      <div className="w-px bg-border" />
+                      <div>
+                        <p className="text-[10px] text-muted-foreground">Credit Debt</p>
+                        <p className="text-sm font-bold text-destructive">−{fmtK(totals.credit)}</p>
+                      </div>
+                    </>
+                  )}
+                  {totals.cash > 0 && (
+                    <>
+                      <div className="w-px bg-border" />
+                      <div>
+                        <p className="text-[10px] text-muted-foreground">Cash</p>
+                        <p className="text-sm font-bold text-foreground">{fmtK(totals.cash)}</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+              {totalAssets > 0 && (
+                <div className="px-5 pb-4 border-t border-border/40 pt-3">
+                  <div className="flex h-1.5 rounded-full overflow-hidden gap-px">
+                    {([
+                      { val: totals.cash,       color: "#117ACA" },
+                      { val: totals.hsa,         color: "#22c55e" },
+                      { val: totals.retirement,  color: "#3b82f6" },
+                      { val: totals.investment,  color: "#8b5cf6" },
+                    ] as { val: number; color: string }[]).filter(s => s.val > 0).map((s, i) => (
+                      <div key={i} className="h-full"
+                        style={{ width: `${(s.val / totalAssets) * 100}%`, backgroundColor: s.color }} />
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                    {[
+                      { label: "Cash",       val: totals.cash,      color: "#117ACA" },
+                      { label: "HSA",        val: totals.hsa,        color: "#22c55e" },
+                      { label: "Retirement", val: totals.retirement, color: "#3b82f6" },
+                      { label: "Brokerage",  val: totals.investment, color: "#8b5cf6" },
+                    ].filter(s => s.val > 0).map(s => (
+                      <div key={s.label} className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+                        <span className="text-[10px] text-muted-foreground">
+                          {s.label} <span className="font-semibold text-foreground">{fmtK(s.val)}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── Spending & Income quick-links ─────────────────────── */}
+            <div className="mb-1">
+              <MonthPicker selected={spendMonth} onChange={setSpendMonth} />
+            </div>
+            <div className="flex gap-3">
+              <QuickCard
+                label="Expenses"
+                value={monthExpenses != null ? `$${fmt(monthExpenses)}` : "—"}
+                sub={monthLabel(spendMonth)}
+                href="/expenses"
+                color="text-foreground"
+              />
+              <QuickCard
+                label="Income"
+                value={monthIncome != null ? `$${fmt(monthIncome)}` : "—"}
+                sub={monthLabel(spendMonth)}
+                href="/income"
+                color="text-emerald-500"
+              />
+            </div>
+
+            {/* ── All Accounts ──────────────────────────────────────── */}
+            <div className="rounded-2xl border border-border bg-card px-5 py-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">All Accounts</p>
+                  <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{allAccountCount}</span>
+                </div>
+                <Link href="/settings/accounts"
+                  className="text-[11px] text-primary font-semibold flex items-center gap-1">
+                  Manage <ChevronRight size={11} />
+                </Link>
+              </div>
+              <AccountSection title="Cash & Savings"  accounts={byGroup.cash}       total={totals.cash}       />
+              <AccountSection title="Credit Cards"     accounts={byGroup.credit}     total={totals.credit}     isLiability />
+              <AccountSection title="HSA"              accounts={byGroup.hsa}        total={totals.hsa}        />
+              <AccountSection title="Retirement"       accounts={byGroup.retirement} total={totals.retirement} />
+              <InvestmentSection
+                plaidAccounts={byGroup.investment}
+                manualAccounts={manualInvest}
+                total={totals.investment}
+              />
+              {/* Prompt to add missing accounts */}
+              {allAccountCount < 3 && (
+                <div className="pt-3 mt-1">
+                  <Link href="/settings/accounts"
+                    className="flex items-center gap-2 text-xs text-primary font-semibold bg-primary/8 rounded-xl px-3 py-2.5">
+                    <Building2 size={13} />
+                    Connect Chase, Marcus, or Merrill to see all accounts
+                    <ChevronRight size={11} className="ml-auto" />
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            {/* ── Recent Activity ───────────────────────────────────── */}
+            {recentTxs.length > 0 && (
+              <div className="rounded-2xl border border-border bg-card px-5 py-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Recent Activity</p>
+                  <Link href="/transactions"
+                    className="text-[11px] text-primary font-semibold flex items-center gap-1">
+                    All transactions <ChevronRight size={11} />
+                  </Link>
+                </div>
+                <div className="flex flex-col divide-y divide-border/50">
+                  {recentTxs.map(tx => <TxRow key={tx.id} tx={tx} acctMap={acctMap} />)}
+                </div>
+              </div>
+            )}
+
+            {/* ── Rewards Points ────────────────────────────────────── */}
+            {points.length > 0 && (
+              <div className="rounded-2xl border border-border bg-card px-5 py-4">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Rewards Points</p>
+                  <Link href="/strategy/points"
+                    className="text-[11px] text-primary font-semibold flex items-center gap-1">
+                    Manage <ChevronRight size={11} />
+                  </Link>
+                </div>
+                <div className="flex items-baseline justify-between mt-2 mb-4">
+                  <p className="text-2xl font-extrabold text-foreground">~${fmt(totalPoints)}</p>
+                  <Link href="/strategy/deals"
+                    className="flex items-center gap-1 text-[11px] text-primary font-semibold bg-primary/10 px-2.5 py-1.5 rounded-xl">
+                    <Coins size={11} />Best deals →
+                  </Link>
+                </div>
+                <div className="flex flex-col divide-y divide-border/50">
+                  {points.map(p => {
+                    const estVal = (p.balance * (p.cpp ?? 1)) / 100;
+                    const brand = PROG_BRAND[p.program] ?? { bg: "#6B7280", initials: "?" };
+                    return (
+                      <div key={p.program} className="py-3 flex items-center gap-3 first:pt-0">
+                        <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-extrabold text-white shrink-0"
+                          style={{ background: brand.bg }}>
+                          {brand.initials}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-foreground">{p.program}</p>
+                          <p className="text-[10px] text-muted-foreground">{p.cpp ?? 1}¢ / pt</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-bold text-foreground">{fmt(p.balance)}</p>
+                          <p className="text-[10px] text-muted-foreground">~${fmt(estVal)}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <BottomNav />
     </div>
   );
 }

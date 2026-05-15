@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { BottomNav } from "@/components/bottom-nav";
 import { useCardNameMap } from "@/lib/use-card-name-map";
 import { CARDS, getMultiplier, CPP } from "@/lib/cards";
 import {
-  Search, Clock, ArrowDownLeft, ArrowUpRight, ChevronDown,
+  Search, Clock, ChevronDown, ChevronLeft, ArrowUpRight,
   X, Edit3, Minus, Receipt, Zap, Check,
+  UtensilsCrossed, Car, Home, Plane, ShoppingBag, Heart,
+  Gamepad2, Coffee, Sparkles, Gift, Bot, Wrench, Package,
+  DollarSign, ArrowLeftRight, Lightbulb,
 } from "lucide-react";
 
 // ── Category taxonomy (matches user's budget exactly) ─────────────────────────
@@ -31,6 +35,53 @@ export const USER_CATS: Record<string, { emoji: string; sub: string[]; color: st
 };
 
 const ALL_CATS = Object.keys(USER_CATS);
+
+// ── Category icons (no emojis) ────────────────────────────────────────────────
+
+type LucideIcon = React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>;
+
+const CAT_ICON: Record<string, { Icon: LucideIcon; color: string }> = {
+  "Food":           { Icon: UtensilsCrossed, color: "#f97316" },
+  "Drinks":         { Icon: Coffee,          color: "#a78bfa" },
+  "Housing":        { Icon: Home,            color: "#6366f1" },
+  "Transportation": { Icon: Car,             color: "#3b82f6" },
+  "Entertainment":  { Icon: Gamepad2,        color: "#ec4899" },
+  "Travel":         { Icon: Plane,           color: "#0ea5e9" },
+  "Personal Care":  { Icon: Sparkles,        color: "#14b8a6" },
+  "Health":         { Icon: Heart,           color: "#22c55e" },
+  "Gifts":          { Icon: Gift,            color: "#f59e0b" },
+  "AI Spend":       { Icon: Bot,             color: "#8b5cf6" },
+  "Shopping":       { Icon: ShoppingBag,     color: "#f43f5e" },
+  "Services":       { Icon: Wrench,          color: "#64748b" },
+  "Income":         { Icon: DollarSign,      color: "#22c55e" },
+  "Transfer":       { Icon: ArrowLeftRight,  color: "#94a3b8" },
+  "Other":          { Icon: Package,         color: "#94a3b8" },
+};
+
+function CategoryIconBox({ category, isIncoming }: { category: string; isIncoming: boolean }) {
+  const def = isIncoming
+    ? { Icon: DollarSign, color: "#22c55e" }
+    : (CAT_ICON[category] ?? CAT_ICON["Other"]);
+  const { Icon, color } = def;
+  return (
+    <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
+      style={{ backgroundColor: color + "15" }}>
+      <Icon size={16} style={{ color }} />
+    </div>
+  );
+}
+
+// ── Best card recommendation ──────────────────────────────────────────────────
+
+function getBestCard(userCat: string): { cardId: string; label: string } | null {
+  // Returns the card with the highest multiplier for this category
+  // Only worth showing if it differs from the used card
+  const dining = ["Food", "Drinks"];
+  const travel = ["Travel", "Transportation"];
+  if (dining.includes(userCat)) return { cardId: "csp", label: "CSP" };  // 3x dining
+  if (travel.includes(userCat)) return { cardId: "venture_x", label: "Venture X" }; // 5x+ hotels/cars via portal
+  return null; // 1.5x or 2x — CFU / Venture X are both fine
+}
 
 // ── AI merchant detection ─────────────────────────────────────────────────────
 
@@ -358,7 +409,6 @@ function TxRow({
   const pts = showPoints ? estimatePoints(rawAmt, cardId, cat) : 0;
   const ptsDollarVal = ptsValue(pts, cardId);
 
-  const isVenmo = (tx.merchant_raw ?? "").toLowerCase().includes("venmo");
   const isTransfer = cat === "Transfer" || cat === "Income";
 
   // In budget mode, skip pure incoming transfers (but show reimbursements in context)
@@ -368,13 +418,16 @@ function TxRow({
   // Skip zero-amount
   if (tx.amount === 0) return null;
 
+  // Card recommendation — only show in spend mode for outgoing credit transactions
+  const bestCard = (viewMode === "spend" && !isIncoming && cardId)
+    ? getBestCard(cat)
+    : null;
+  const showRec = bestCard && bestCard.cardId !== cardId;
+
   return (
     <div className="flex items-start gap-3 py-3 px-4 border-b border-border/40 last:border-0">
-      {/* Category icon */}
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-base mt-0.5"
-        style={{ backgroundColor: catInfo.color + "15" }}>
-        {isIncoming ? "💚" : catInfo.emoji}
-      </div>
+      {/* Category icon — no emojis */}
+      <CategoryIconBox category={cat} isIncoming={isIncoming} />
 
       {/* Main content */}
       <div className="flex-1 min-w-0">
@@ -412,6 +465,16 @@ function TxRow({
                 </span>
                 <span className="text-[10px] text-muted-foreground">
                   · ~${ptsDollarVal.toFixed(2)} value
+                </span>
+              </div>
+            )}
+
+            {/* Card recommendation */}
+            {showRec && (
+              <div className="flex items-center gap-1 mt-1">
+                <Lightbulb size={10} className="text-amber-500" />
+                <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                  Use {bestCard!.label} here for more points
                 </span>
               </div>
             )}
@@ -612,7 +675,10 @@ export default function TransactionsPage() {
   return (
     <div className="flex flex-col min-h-screen pb-24 max-w-lg mx-auto">
       {/* Header */}
-      <div className="px-4 pt-6 pb-3">
+      <div className="px-4 pt-5 pb-3">
+        <Link href="/dashboard" className="flex items-center gap-1 text-sm text-muted-foreground mb-3 -ml-0.5 w-fit">
+          <ChevronLeft size={16} />Back
+        </Link>
         <h1 className="text-2xl font-bold text-foreground">Transactions</h1>
         <p className="text-muted-foreground text-sm mt-0.5">All accounts · your taxonomy</p>
       </div>
