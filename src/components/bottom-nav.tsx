@@ -3,16 +3,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LayoutDashboard, CreditCard, Plane, Settings } from "lucide-react";
+import { LayoutDashboard, Receipt, Zap, CreditCard, Settings } from "lucide-react";
 
 const tabs = [
-  { href: "/dashboard",    label: "Dashboard", icon: LayoutDashboard },
-  { href: "/strategy",     label: "Cards",     icon: CreditCard },
-  { href: "/trip-planner", label: "Travel",    icon: Plane },
-  { href: "/settings",     label: "Settings",  icon: Settings },
+  { href: "/dashboard",  label: "Home",     icon: LayoutDashboard },
+  { href: "/expenses",   label: "Spend",    icon: Receipt },
+  { href: "/optimizer",  label: "Optimize", icon: Zap, center: true },
+  { href: "/strategy",   label: "Cards",    icon: CreditCard },
+  { href: "/settings",   label: "Settings", icon: Settings },
 ];
 
-// Fetches unread alert count once per session and caches in sessionStorage.
 function useUnreadAlertCount(): number {
   const SESSION_KEY = "unread_alert_count";
   const [count, setCount] = useState<number>(() => {
@@ -20,7 +20,6 @@ function useUnreadAlertCount(): number {
     const cached = sessionStorage.getItem(SESSION_KEY);
     return cached ? parseInt(cached, 10) : 0;
   });
-
   useEffect(() => {
     const cached = sessionStorage.getItem(SESSION_KEY);
     if (cached !== null) return;
@@ -33,7 +32,6 @@ function useUnreadAlertCount(): number {
       })
       .catch(() => {});
   }, []);
-
   return count;
 }
 
@@ -48,12 +46,44 @@ export function BottomNav() {
   const unreadCount = useUnreadAlertCount();
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <div className="flex items-center justify-around h-16 px-2 max-w-lg mx-auto">
-        {tabs.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 overflow-visible">
+      <div className="flex items-end justify-around h-16 px-1 max-w-lg mx-auto overflow-visible">
+        {tabs.map(({ href, label, icon: Icon, center }) => {
+          // "Spend" tab is active for /expenses, /income, /transactions
+          const isSpend = href === "/expenses";
+          const active = isSpend
+            ? (pathname === "/expenses" || pathname === "/income" || pathname === "/transactions")
+            : pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+
           const isCards = href === "/strategy";
           const showBadge = isCards && unreadCount > 0 && !active;
+
+          if (center) {
+            return (
+              <Link
+                key={href}
+                href={href}
+                className="relative flex flex-col items-center pb-2 -mt-8 z-10"
+              >
+                <div
+                  className={`w-14 h-14 rounded-full flex items-center justify-center shadow-xl transition-all ${
+                    active
+                      ? "bg-primary scale-95 shadow-primary/40"
+                      : "bg-primary hover:scale-105 shadow-primary/30"
+                  }`}
+                >
+                  <Icon size={24} strokeWidth={2.2} className="text-white" />
+                </div>
+                <span
+                  className={`text-[10px] font-semibold mt-1 leading-none ${
+                    active ? "text-primary" : "text-muted-foreground"
+                  }`}
+                >
+                  {label}
+                </span>
+              </Link>
+            );
+          }
 
           return (
             <Link

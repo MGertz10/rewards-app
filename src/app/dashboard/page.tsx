@@ -6,7 +6,8 @@ import {
   ChevronRight, ChevronDown, ChevronUp, Building2, RefreshCw,
   Coins, UtensilsCrossed, Car, Home, Plane, ShoppingBag, Heart,
   Gamepad2, Coffee, Sparkles, Gift, Bot, Wrench, Package,
-  TrendingUp, DollarSign, ArrowRight,
+  TrendingUp, DollarSign, ArrowRight, ArrowRightLeft, AlertTriangle,
+  Zap,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { AccountWithHoldings } from "@/app/api/accounts/holdings-with-prices/route";
@@ -438,6 +439,140 @@ function QuickCard({
   );
 }
 
+// ─── Daily Brief ───────────────────────────────────────────────────────────
+// Horizontally scrollable intelligence cards surfacing what matters today.
+
+interface BriefCard {
+  id: string;
+  type: "opportunity" | "warning" | "info" | "pace";
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+  cta: string;
+  href: string;
+  accent: string; // tailwind bg class or inline style
+}
+
+function DailyBrief({
+  points,
+  monthExpenses,
+  spendMonth,
+}: {
+  points: Array<{ program: string; balance: number; cpp?: number }>;
+  monthExpenses: number | null;
+  spendMonth: string;
+}) {
+  // Build contextual brief cards from live + known data
+  const cards: BriefCard[] = [];
+
+  // 1. Points deployment opportunity — Cap1 miles for Europe
+  const cap1 = points.find(p => p.program === "Capital One");
+  if (cap1 && cap1.balance > 50_000) {
+    cards.push({
+      id: "cap1-europe",
+      type: "opportunity",
+      icon: <Plane size={18} className="text-white" />,
+      title: `${(cap1.balance / 1000).toFixed(0)}K Miles → Europe`,
+      body: `Flying Blue (Air France/KLM) costs ~52K miles one-way in economy. You could book 1–2 flights now.`,
+      cta: "Plan redemption",
+      href: "/trip-planner",
+      accent: "#C41230",
+    });
+  }
+
+  // 2. Chase UR deployment
+  const chaseUR = points.find(p => p.program === "Chase UR");
+  if (chaseUR && chaseUR.balance > 8_000) {
+    cards.push({
+      id: "chase-hyatt",
+      type: "opportunity",
+      icon: <Coins size={18} className="text-white" />,
+      title: `${(chaseUR.balance / 1000).toFixed(0)}K UR → Hyatt`,
+      body: `Transfer to Hyatt at 1:1. A Chicago Hyatt room runs 12–17K pts/night — great value vs cash rate.`,
+      cta: "See deals",
+      href: "/strategy/deals",
+      accent: "#117ACA",
+    });
+  }
+
+  // 3. Marriott cert deployment (always relevant — user has 5 certs)
+  cards.push({
+    id: "marriott-certs",
+    type: "warning",
+    icon: <AlertTriangle size={18} className="text-white" />,
+    title: "5 Free Night Certs",
+    body: `Marriott free night certs expire annually. Book a Category 1–5 hotel before they lapse. Europe has great options.`,
+    cta: "Find hotels",
+    href: "/strategy/burn",
+    accent: "#8B0000",
+  });
+
+  // 4. Marriott downgrade — evergreen action item
+  cards.push({
+    id: "boundless-downgrade",
+    type: "warning",
+    icon: <ArrowRightLeft size={18} className="text-white" />,
+    title: "Save $95 — Downgrade Marriott",
+    body: `Boundless costs $95/yr. Downgrading to Bonvoy Bold (free) preserves your account age and Marriott status.`,
+    cta: "Start flow",
+    href: "/strategy/downgrade/boundless",
+    accent: "#d97706",
+  });
+
+  // 5. Spending pace (if data available)
+  if (monthExpenses != null && monthExpenses > 0) {
+    const today = new Date();
+    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    const dayOfMonth = today.getDate();
+    const projected = (monthExpenses / dayOfMonth) * daysInMonth;
+    const paceMsg = projected > monthExpenses
+      ? `Projecting $${Math.round(projected).toLocaleString()} for the full month`
+      : `You're ${dayOfMonth} days in`;
+    cards.push({
+      id: "pace",
+      type: "pace",
+      icon: <TrendingUp size={18} className="text-white" />,
+      title: `$${Math.round(monthExpenses).toLocaleString()} spent so far`,
+      body: paceMsg + `. Tap to see breakdown by category.`,
+      cta: "View expenses",
+      href: "/expenses",
+      accent: "#6366f1",
+    });
+  }
+
+  if (cards.length === 0) return null;
+
+  return (
+    <div className="mb-1">
+      <div className="flex items-center gap-2 mb-2.5 px-0.5">
+        <Zap size={12} className="text-primary" />
+        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Daily Brief</p>
+      </div>
+      <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-4 px-4 pb-1">
+        {cards.map(card => (
+          <Link key={card.id} href={card.href}
+            className="shrink-0 w-64 rounded-2xl overflow-hidden shadow-sm border border-border flex flex-col">
+            {/* Colored top bar */}
+            <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-3"
+              style={{ backgroundColor: card.accent }}>
+              <div className="shrink-0">{card.icon}</div>
+              <p className="text-sm font-bold text-white leading-tight">{card.title}</p>
+            </div>
+            {/* Body */}
+            <div className="bg-card flex-1 px-4 py-3 flex flex-col justify-between gap-3">
+              <p className="text-[11px] text-muted-foreground leading-relaxed">{card.body}</p>
+              <div className="flex items-center gap-1 text-[11px] font-bold"
+                style={{ color: card.accent }}>
+                {card.cta} <ArrowRight size={10} />
+              </div>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main page ─────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -596,6 +731,13 @@ export default function DashboardPage() {
             </Link>
           </div>
         )}
+
+        {/* ── Daily Brief ─────────────────────────────────────────── */}
+        <DailyBrief
+          points={points}
+          monthExpenses={monthExpenses}
+          spendMonth={spendMonth}
+        />
 
         {hasData && (
           <>
