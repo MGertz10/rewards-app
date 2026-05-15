@@ -21,18 +21,6 @@ function PlaidLogo() {
   );
 }
 
-function SheetsLogo() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 32 32" fill="none">
-      <rect width="32" height="32" rx="6" fill="#22C55E" fillOpacity="0.15" />
-      <rect x="7" y="9" width="18" height="2" rx="1" fill="#22C55E" />
-      <rect x="7" y="13" width="18" height="2" rx="1" fill="#22C55E" fillOpacity="0.7" />
-      <rect x="7" y="17" width="12" height="2" rx="1" fill="#22C55E" fillOpacity="0.5" />
-      <rect x="7" y="21" width="8" height="2" rx="1" fill="#22C55E" fillOpacity="0.3" />
-    </svg>
-  );
-}
-
 // ── Plaid Link widget ─────────────────────────────────────────────────────────
 
 const LINK_TOKEN_KEY = "plaid_link_token";
@@ -49,6 +37,7 @@ function PlaidConnectButton({
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "connecting" | "success" | "error">("idle");
   const [errorDetails, setErrorDetails] = useState<string>("");
+  const [retryKey, setRetryKey] = useState(0);
 
   // Detect OAuth return: Chase/Cap One redirect back with ?oauth_state_id=...
   const isOAuthReturn =
@@ -66,16 +55,26 @@ function PlaidConnectButton({
       return;
     }
     // Normal flow: fetch a fresh link token
+    setLinkToken(null);
     fetch("/api/plaid/link-token", { method: "POST" })
       .then((r) => r.json())
       .then((d) => {
         const token = d.link_token ?? null;
-        if (!token) { setStatus("error"); return; }
+        if (!token) {
+          const detail = d.details
+            ? (typeof d.details === "object" ? JSON.stringify(d.details) : String(d.details))
+            : d.error ?? "No link_token returned";
+          setErrorDetails(detail);
+          setStatus("error");
+          return;
+        }
+        setStatus("idle");
         setLinkToken(token);
         sessionStorage.setItem(LINK_TOKEN_KEY, token);
       })
-      .catch(() => setStatus("error"));
-  }, [isOAuthReturn]);
+      .catch((e) => { setErrorDetails(String(e)); setStatus("error"); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOAuthReturn, retryKey]);
 
   const onPlaidSuccess = useCallback(
     async (public_token: string, metadata: { institution?: { name?: string } | null }) => {
@@ -134,9 +133,12 @@ function PlaidConnectButton({
   if (status === "error") {
     return (
       <div className="flex flex-col gap-2">
-        <p className="text-xs text-destructive text-center">
-          Connection failed. Try refreshing the page.
-        </p>
+        <button
+          onClick={() => { setStatus("idle"); setErrorDetails(""); setRetryKey(k => k + 1); }}
+          className="w-full rounded-xl bg-destructive/10 text-destructive border border-destructive/20 py-2.5 text-sm font-semibold flex items-center justify-center gap-2 hover:bg-destructive/20 transition-colors"
+        >
+          Connection failed — tap to retry
+        </button>
         {errorDetails && (
           <pre className="text-[10px] bg-muted p-2 rounded-lg overflow-auto whitespace-pre-wrap break-all border border-border">
             {errorDetails}
@@ -297,6 +299,17 @@ function ConnectedSection({
                 </div>
               )}
 
+              {/* Sync error banner — ALWAYS render when an error exists,
+                  regardless of whether accounts are present. This makes
+                  partial-sync failures visible instead of silently hidden. */}
+              {syncErrors[item.item_id] && (
+                <div className="px-3 py-2 bg-destructive/10 border-b border-destructive/20">
+                  <p className="text-[10px] text-destructive font-mono break-all leading-snug">
+                    Sync error: {syncErrors[item.item_id]}
+                  </p>
+                </div>
+              )}
+
               {/* Nested accounts */}
               {itemAccounts.length > 0 ? (
                 <div className="flex flex-col">
@@ -311,15 +324,11 @@ function ConnectedSection({
                     </div>
                   ))}
                 </div>
-              ) : syncErrors[item.item_id] ? (
-                <p className="px-3 py-2 text-[10px] text-destructive font-mono break-all">
-                  Sync error: {syncErrors[item.item_id]}
-                </p>
-              ) : (
+              ) : !syncErrors[item.item_id] ? (
                 <p className="px-3 py-1.5 text-[11px] text-muted-foreground italic">
                   Accounts will appear after first sync
                 </p>
-              )}
+              ) : null}
             </div>
           );
         })}
@@ -1064,83 +1073,6 @@ export default function AccountsPage() {
           ) : (
             <PlaidConnectButton onSuccess={handleConnectSuccess} />
           )}
-        </div>
-
-        {/* ── Google Sheets ── */}
-        <div className="rounded-2xl border border-border bg-card p-4 flex flex-col gap-4">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center shrink-0">
-              <SheetsLogo />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-semibold text-foreground">Google Sheets</p>
-                <span className="flex items-center gap-1 text-[10px] font-semibold text-success bg-success/10 px-1.5 py-0.5 rounded-full">
-                  <CheckCircle2 size={10} />
-                  Connected
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Income & net worth data — Plaid powers live spending
-              </p>
-            </div>
-          </div>
-
-          <div className="bg-muted/50 rounded-xl p-3">
-            <p className="text-xs font-semibold text-muted-foreground mb-1.5">Currently pulling:</p>
-            <ul className="flex flex-col gap-1">
-              {[
-                { label: "Monthly income from paycheck entries", primary: true },
-                { label: "Net worth snapshot & savings rate", primary: true },
-                { label: "Budget estimates (fallback when Plaid is unavailable)", primary: false },
-              ].map((item) => (
-                <li key={item.label} className="text-xs text-foreground flex items-start gap-1.5">
-                  <CheckCircle2 size={11} className={`shrink-0 mt-0.5 ${item.primary ? "text-success" : "text-muted-foreground"}`} />
-                  {item.label}
-                </li>
-              ))}
-            </ul>
-            <p className="text-[10px] text-muted-foreground mt-2 pt-2 border-t border-border/40">
-              Live spending is now powered by Plaid — Sheets handles income & net worth only.
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-success/5 border border-success/20 px-3 py-2.5">
-            <p className="text-xs text-foreground font-medium">
-              ✓ Connected via service account — refreshes automatically.
-            </p>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              No re-authentication needed. Data updates each time you open the Dashboard.
-            </p>
-          </div>
-        </div>
-
-        {/* ── Fidelity Roth IRA note ── */}
-        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 flex flex-col gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-sm">⚠️</span>
-            <p className="text-sm font-semibold text-foreground">Fidelity Roth IRA — Not Yet Connected</p>
-          </div>
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Fidelity opted out of Plaid&apos;s standard bank/transaction feed, so it won&apos;t appear when you connect via Plaid above. Two paths to connect it:
-          </p>
-          <ul className="flex flex-col gap-1.5 mt-0.5">
-            <li className="text-xs text-foreground flex items-start gap-1.5">
-              <span className="text-amber-500 mt-0.5 shrink-0">1.</span>
-              <span>
-                <span className="font-medium">Plaid Investments product</span> — Fidelity IS supported here (holdings, transactions, securities) but requires a Plaid Growth or Custom plan. If/when your Plaid account is upgraded, this will unlock automatically.
-              </span>
-            </li>
-            <li className="text-xs text-foreground flex items-start gap-1.5">
-              <span className="text-amber-500 mt-0.5 shrink-0">2.</span>
-              <span>
-                <span className="font-medium">Finicity (Mastercard)</span> — Fidelity&apos;s officially preferred data-sharing partner. Supports IRA &amp; brokerage account aggregation via the &quot;Fidelity Access&quot; API. This is a second aggregator we can add to the app.
-              </span>
-            </li>
-          </ul>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            Last checked: May 9, 2026 · This status is monitored monthly and will update when Fidelity becomes connectable.
-          </p>
         </div>
 
         {/* ── Manual Accounts ── */}

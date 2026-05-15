@@ -31,15 +31,21 @@ export async function POST(req: NextRequest) {
 
     if (error) throw error;
 
-    // Immediately kick off a balance sync so dashboard shows data right away.
-    // Must use an absolute URL — relative URLs don't work in server-side fetch.
+    // Immediately sync balances + transactions so the dashboard shows data right away.
+    // MUST be awaited — Vercel serverless kills background (fire-and-forget) fetches
+    // the moment the function returns its response.
     const reqUrl = new URL(req.url);
     const base = `${reqUrl.protocol}//${reqUrl.host}`;
-    fetch(`${base}/api/plaid/sync`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ item_id }),
-    }).catch(() => {}); // fire-and-forget
+    try {
+      await fetch(`${base}/api/plaid/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id }),
+      });
+    } catch (syncErr) {
+      // Sync failure is non-fatal — token is saved, cron will retry at 11 UTC
+      console.warn("[plaid/exchange] initial sync failed:", syncErr);
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {

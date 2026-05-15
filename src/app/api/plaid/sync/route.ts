@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
               ? (acct.balances.current / acct.balances.limit) * 100
               : null;
 
-          await supabase.from("card_balances").upsert(
+          const { error: balErr } = await supabase.from("card_balances").upsert(
             {
               plaid_account_id: acct.account_id,
               item_id: item.item_id,
@@ -64,6 +64,10 @@ export async function POST(req: NextRequest) {
             },
             { onConflict: "plaid_account_id" }
           );
+          if (balErr) {
+            console.error(`[plaid/sync] card_balances upsert failed for ${acct.account_id}:`, balErr);
+            throw new Error(`card_balances upsert: ${balErr.message}`);
+          }
         }
 
         // ── Transactions (cursor-based incremental sync) ────────────────────
@@ -84,7 +88,7 @@ export async function POST(req: NextRequest) {
 
             // Insert / update added transactions
             for (const tx of [...added, ...modified]) {
-              await supabase.from("transactions").upsert(
+              const { error: txUpsertErr } = await supabase.from("transactions").upsert(
                 {
                   plaid_tx_id: tx.transaction_id,
                   plaid_account_id: tx.account_id,
@@ -97,6 +101,10 @@ export async function POST(req: NextRequest) {
                 },
                 { onConflict: "plaid_tx_id" }
               );
+              if (txUpsertErr) {
+                console.error(`[plaid/sync] transactions upsert failed for ${tx.transaction_id}:`, txUpsertErr);
+                throw new Error(`transactions upsert: ${txUpsertErr.message}`);
+              }
             }
 
             // Remove deleted transactions
@@ -137,7 +145,7 @@ export async function POST(req: NextRequest) {
 
           for (const h of holdings) {
             const sec = secMap.get(h.security_id);
-            await supabase.from("plaid_holdings").upsert(
+            const { error: holdErr } = await supabase.from("plaid_holdings").upsert(
               {
                 plaid_account_id: h.account_id,
                 item_id: item.item_id,
@@ -152,7 +160,12 @@ export async function POST(req: NextRequest) {
               },
               { onConflict: "plaid_account_id, name" }
             );
-            holdingsCount++;
+            if (holdErr) {
+              console.warn(`[plaid/sync] plaid_holdings upsert failed for ${h.account_id}:`, holdErr);
+              // Don't throw — holdings are optional; balance sync should still succeed
+            } else {
+              holdingsCount++;
+            }
           }
         } catch {
           // Item doesn't have Investments product — skip silently

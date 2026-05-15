@@ -7,11 +7,12 @@ import {
   Coins, UtensilsCrossed, Car, Home, Plane, ShoppingBag, Heart,
   Gamepad2, Coffee, Sparkles, Gift, Bot, Wrench, Package,
   TrendingUp, DollarSign, ArrowRight, ArrowRightLeft, AlertTriangle,
-  Zap,
+  Zap, X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { AccountWithHoldings } from "@/app/api/accounts/holdings-with-prices/route";
 import { BottomNav } from "@/components/bottom-nav";
+import { useCardNameMap, detectCardNameFromPlaid } from "@/lib/use-card-name-map";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,41 @@ function cleanMerchant(raw: string | null) {
   if (!raw) return "Unknown";
   return raw.replace(/\*+/g, " ").replace(/\s{2,}/g, " ").replace(/\d{6,}/g, "").trim()
     .split(" ").slice(0, 4).join(" ");
+}
+
+// Normalize Plaid sandbox names ("TOTAL CHECKING", "CHASE SAVINGS", "CREDIT CARD")
+// into clean Title Case ("Total Checking", "Chase Savings", "Credit Card").
+// Leaves mixed-case names untouched so real product names ("Sapphire Preferred")
+// don't get re-cased.
+function titleCaseIfShouty(raw: string | null): string {
+  if (!raw) return "Account";
+  const trimmed = raw.trim();
+  // Only re-case if the string is entirely uppercase (sandbox style)
+  if (trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed)) {
+    return trimmed
+      .toLowerCase()
+      .split(/\s+/)
+      .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1) : w))
+      .join(" ");
+  }
+  return trimmed;
+}
+
+// Build a display name for any account row:
+//   1. Map by last4 (user-configured in Settings → My Cards)
+//   2. Auto-detect card product names from Plaid string
+//   3. Normalize ALL CAPS sandbox strings → Title Case
+//   Mask suffix appended in all branches.
+function displayAccountName(
+  rawName: string | null,
+  mask: string | null,
+  cardNameMap: Map<string, string>,
+): string {
+  const suffix = mask ? ` ····${mask}` : "";
+  if (mask && cardNameMap.has(mask)) return `${cardNameMap.get(mask)}${suffix}`;
+  const detected = detectCardNameFromPlaid(rawName);
+  if (detected) return `${detected}${suffix}`;
+  return `${titleCaseIfShouty(rawName)}${suffix}`;
 }
 
 // ─── Account Classification ────────────────────────────────────────────────
@@ -202,20 +238,18 @@ const PROG_BRAND: Record<string, { bg: string; initials: string }> = {
 
 // ─── Account row ───────────────────────────────────────────────────────────
 
-function AccountRow({ acct }: { acct: CardBalance }) {
+function AccountRow({ acct, cardNameMap }: { acct: CardBalance; cardNameMap: Map<string, string> }) {
   const isCard = classifyAccount(acct) === "credit";
   const bal = acct.current_balance ?? 0;
   const util = acct.utilization_pct;
   const utilColor = util != null
     ? (util > 30 ? "text-destructive" : util > 9 ? "text-amber-500" : "text-emerald-500") : "";
+  const display = displayAccountName(acct.name, acct.mask, cardNameMap);
   return (
     <div className="flex items-center gap-3 py-3">
       <Avatar name={acct.name} size="sm" />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-foreground truncate">
-          {acct.name ?? "Account"}
-          {acct.mask && <span className="text-muted-foreground/60 text-xs"> ···{acct.mask}</span>}
-        </p>
+        <p className="text-sm font-medium text-foreground truncate">{display}</p>
         {isCard && util != null && (
           <p className={`text-[10px] font-medium ${utilColor}`}>{util}% utilized</p>
         )}
@@ -238,9 +272,10 @@ function AccountRow({ acct }: { acct: CardBalance }) {
 // ─── Collapsible account group ─────────────────────────────────────────────
 
 function AccountSection({
-  title, accounts, total, isLiability, startOpen = true,
+  title, accounts, total, isLiability, startOpen = true, cardNameMap,
 }: {
   title: string; accounts: CardBalance[]; total: number; isLiability?: boolean; startOpen?: boolean;
+  cardNameMap: Map<string, string>;
 }) {
   const [open, setOpen] = useState(startOpen);
   if (!accounts.length) return null;
@@ -260,7 +295,7 @@ function AccountSection({
       </button>
       {open && (
         <div className="pb-1 divide-y divide-border/40">
-          {accounts.map(a => <AccountRow key={a.plaid_account_id} acct={a} />)}
+          {accounts.map(a => <AccountRow key={a.plaid_account_id} acct={a} cardNameMap={cardNameMap} />)}
         </div>
       )}
     </div>
@@ -270,11 +305,12 @@ function AccountSection({
 // ─── Investment section ────────────────────────────────────────────────────
 
 function InvestmentSection({
-  plaidAccounts, manualAccounts, total,
+  plaidAccounts, manualAccounts, total, cardNameMap,
 }: {
   plaidAccounts: CardBalance[];
   manualAccounts: AccountWithHoldings[];
   total: number;
+  cardNameMap: Map<string, string>;
 }) {
   const [open, setOpen] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -293,7 +329,7 @@ function InvestmentSection({
     <div className="border-b border-border/50 last:border-0">
       <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between py-3">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-foreground">Brokerage</span>
+          <span className="text-xs font-bold text-foreground">Investments</span>
           <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{count}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -303,7 +339,7 @@ function InvestmentSection({
       </button>
       {open && (
         <div className="pb-1 divide-y divide-border/40">
-          {plaidAccounts.map(a => <AccountRow key={a.plaid_account_id} acct={a} />)}
+          {plaidAccounts.map(a => <AccountRow key={a.plaid_account_id} acct={a} cardNameMap={cardNameMap} />)}
           {manualAccounts.map(a => {
             const val = a.liveValue ?? a.balance;
             const isExp = expanded.has(a.id);
@@ -355,6 +391,131 @@ function InvestmentSection({
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Net Worth Graph (historical snapshots) ────────────────────────────────
+
+interface NWSnapshot { recorded_date: string; net_worth: number; }
+
+function NetWorthGraph({ snapshots }: { snapshots: NWSnapshot[] }) {
+  if (snapshots.length === 0) return null;
+
+  // With only 1 point, show a simple "tracking started" state
+  if (snapshots.length === 1) {
+    const d = new Date(snapshots[0].recorded_date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return (
+      <div className="mt-3 pt-3 border-t border-border/40">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-muted-foreground font-medium">Net Worth Trend</span>
+          <span className="text-[10px] text-muted-foreground">Tracking since {d}</span>
+        </div>
+        <div className="mt-2 h-px bg-primary/30 w-full rounded-full" />
+        <p className="text-[9px] text-muted-foreground mt-1.5">Graph builds as daily snapshots accumulate</p>
+      </div>
+    );
+  }
+  const values = snapshots.map(s => s.net_worth);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = Math.max(max - min, 1);
+  const first = values[0];
+  const last = values[values.length - 1];
+  const delta = last - first;
+  const deltaColor = delta >= 0 ? "#22c55e" : "#ef4444";
+
+  // Build SVG polyline points
+  const W = 300; const H = 48;
+  const points = snapshots.map((s, i) => {
+    const x = (i / (snapshots.length - 1)) * W;
+    const y = H - ((s.net_worth - min) / range) * H;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+
+  function fmtK(n: number) {
+    if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+    if (Math.abs(n) >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
+    return `$${n.toFixed(0)}`;
+  }
+
+  const startLabel = new Date(snapshots[0].recorded_date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const endLabel = new Date(snapshots[snapshots.length - 1].recorded_date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border/40">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] text-muted-foreground font-medium">Net Worth Trend</span>
+        <span className={`text-[10px] font-bold`} style={{ color: deltaColor }}>
+          {delta >= 0 ? "+" : ""}{fmtK(delta)}
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: "48px" }} preserveAspectRatio="none">
+        <polyline
+          points={points}
+          fill="none"
+          stroke={deltaColor}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      <div className="flex justify-between mt-1">
+        <span className="text-[9px] text-muted-foreground">{startLabel}</span>
+        <span className="text-[9px] text-muted-foreground">{endLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── 6-Month Spending Graph ────────────────────────────────────────────────
+
+function SpendingGraph({ data, onSelectMonth }: {
+  data: Array<{ month: string; amount: number }>;
+  onSelectMonth: (m: string) => void;
+}) {
+  // Only show months that have data
+  const withData = data.filter(d => d.amount > 0);
+  if (withData.length === 0) return null;
+  const max = Math.max(...withData.map(d => d.amount), 1);
+  const current = currentYYYYMM();
+
+  return (
+    <div className="rounded-2xl border border-border bg-card px-5 py-4">
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Spending History</p>
+        <Link href="/expenses" className="text-[11px] text-primary font-semibold flex items-center gap-1">
+          Details <ChevronRight size={11} />
+        </Link>
+      </div>
+      <div className="flex items-end gap-2" style={{ height: "80px" }}>
+        {withData.map(({ month, amount }) => {
+          const pct = (amount / max) * 100;
+          const isCurrent = month === current;
+          const [yr, mo] = month.split("-");
+          const label = new Date(Number(yr), Number(mo) - 1, 1)
+            .toLocaleDateString("en-US", { month: "short" });
+          return (
+            <button key={month} onClick={() => onSelectMonth(month)}
+              className="flex-1 flex flex-col items-center gap-1 group">
+              <span className={`text-[9px] font-bold leading-none ${isCurrent ? "text-primary" : "text-muted-foreground"}`}>
+                {amount >= 1000 ? `$${(amount / 1000).toFixed(1)}k` : `$${Math.round(amount)}`}
+              </span>
+              <div className="w-full flex items-end flex-1">
+                <div className="w-full rounded-t-md transition-all group-active:opacity-70"
+                  style={{
+                    height: `${Math.max(pct, 6)}%`,
+                    backgroundColor: isCurrent ? "#117ACA" : "#117ACA30",
+                  }}
+                />
+              </div>
+              <span className={`text-[9px] leading-none ${isCurrent ? "font-bold text-primary" : "text-muted-foreground"}`}>
+                {label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -453,6 +614,22 @@ interface BriefCard {
   accent: string; // tailwind bg class or inline style
 }
 
+const BRIEF_DISMISS_KEY = "brief_dismissed_v1";
+
+function getDismissed(): Record<string, number> {
+  try { return JSON.parse(localStorage.getItem(BRIEF_DISMISS_KEY) ?? "{}"); } catch { return {}; }
+}
+function dismissCard(id: string) {
+  const d = getDismissed();
+  d[id] = Date.now();
+  localStorage.setItem(BRIEF_DISMISS_KEY, JSON.stringify(d));
+}
+function isCardDismissed(id: string, ttlDays = 30): boolean {
+  const d = getDismissed();
+  if (!d[id]) return false;
+  return Date.now() - d[id] < ttlDays * 86_400_000;
+}
+
 function DailyBrief({
   points,
   monthExpenses,
@@ -462,6 +639,13 @@ function DailyBrief({
   monthExpenses: number | null;
   spendMonth: string;
 }) {
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+
+  function dismiss(id: string) {
+    dismissCard(id);
+    setDismissed(prev => new Set([...prev, id]));
+  }
+
   // Build contextual brief cards from live + known data
   const cards: BriefCard[] = [];
 
@@ -540,7 +724,9 @@ function DailyBrief({
     });
   }
 
-  if (cards.length === 0) return null;
+  const visible = cards.filter(c => !dismissed.has(c.id) && !isCardDismissed(c.id));
+  if (visible.length === 0) return null;
+
 
   return (
     <div className="mb-1">
@@ -549,24 +735,29 @@ function DailyBrief({
         <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Daily Brief</p>
       </div>
       <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-4 px-4 pb-1">
-        {cards.map(card => (
-          <Link key={card.id} href={card.href}
-            className="shrink-0 w-64 rounded-2xl overflow-hidden shadow-sm border border-border flex flex-col">
+        {visible.map(card => (
+          <div key={card.id} className="shrink-0 w-64 rounded-2xl overflow-hidden shadow-sm border border-border flex flex-col">
             {/* Colored top bar */}
             <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-3"
               style={{ backgroundColor: card.accent }}>
               <div className="shrink-0">{card.icon}</div>
-              <p className="text-sm font-bold text-white leading-tight">{card.title}</p>
+              <p className="text-sm font-bold text-white leading-tight flex-1">{card.title}</p>
+              <button
+                onClick={(e) => { e.preventDefault(); dismiss(card.id); }}
+                className="shrink-0 p-0.5 rounded-full hover:bg-white/20 transition-colors"
+              >
+                <X size={13} className="text-white/70" />
+              </button>
             </div>
             {/* Body */}
-            <div className="bg-card flex-1 px-4 py-3 flex flex-col justify-between gap-3">
+            <Link href={card.href} className="bg-card flex-1 px-4 py-3 flex flex-col justify-between gap-3">
               <p className="text-[11px] text-muted-foreground leading-relaxed">{card.body}</p>
               <div className="flex items-center gap-1 text-[11px] font-bold"
                 style={{ color: card.accent }}>
                 {card.cta} <ArrowRight size={10} />
               </div>
-            </div>
-          </Link>
+            </Link>
+          </div>
         ))}
       </div>
     </div>
@@ -582,15 +773,28 @@ export default function DashboardPage() {
   const [points, setPoints]                 = useState<PointsBalance[]>([]);
   const [lastSync, setLastSync]             = useState<string | null>(null);
   const [loading, setLoading]               = useState(true);
+  const [syncing, setSyncing]               = useState(false);
 
   // Spending summary (current month only — for quick stat)
   const [spendMonth, setSpendMonth] = useState(currentYYYYMM());
   const [monthExpenses, setMonthExpenses] = useState<number | null>(null);
   const [monthIncome, setMonthIncome] = useState<number | null>(null);
 
-  useEffect(() => {
+  // 6-month spending chart
+  const [monthlySpend, setMonthlySpend] = useState<Array<{ month: string; amount: number }>>([]);
+
+  // Net worth history for graph
+  const [nwSnapshots, setNwSnapshots] = useState<NWSnapshot[]>([]);
+
+  // Count of linked Plaid institutions — used to gate the "Connect …" prompt
+  const [plaidItemsCount, setPlaidItemsCount] = useState(0);
+
+  // last4 → friendly card shortName, sourced from user_card_metadata
+  const cardNameMap = useCardNameMap();
+
+  const loadBalances = useCallback(async () => {
     const supabase = createClient();
-    Promise.all([
+    const [{ data: bals }, holdingsRes, { data: txs }, pointsRes, { count: itemsCount }] = await Promise.all([
       supabase
         .from("card_balances")
         .select("plaid_account_id,name,mask,current_balance,available_balance,credit_limit,utilization_pct,account_type,account_subtype,as_of")
@@ -605,44 +809,87 @@ export default function DashboardPage() {
         .order("posted_at", { ascending: false })
         .limit(8),
       fetch("/api/points-balances").then(r => r.json()).catch(() => ({ balances: [] })),
-    ]).then(([{ data: bals }, holdingsRes, { data: txs }, pointsRes]) => {
-      if (bals) {
-        setBalances(bals);
-        const times = bals.map((b: CardBalance) => b.as_of).filter(Boolean) as string[];
-        if (times.length) {
-          const latest = times.sort().at(-1)!;
-          setLastSync(new Date(latest).toLocaleDateString("en-US", {
-            month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-          }));
-        }
+      supabase.from("plaid_items").select("item_id", { count: "exact", head: true }),
+    ]);
+    setPlaidItemsCount(itemsCount ?? 0);
+    if (bals) {
+      setBalances(bals);
+      const times = bals.map((b: CardBalance) => b.as_of).filter(Boolean) as string[];
+      if (times.length) {
+        const latest = times.sort().at(-1)!;
+        setLastSync(new Date(latest).toLocaleDateString("en-US", {
+          month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+        }));
       }
-      if (holdingsRes?.accounts) setManualAccounts(holdingsRes.accounts);
-      if (txs) setRecentTxs(txs);
-      if (pointsRes?.balances) setPoints(pointsRes.balances);
-      setLoading(false);
+    }
+    if (holdingsRes?.accounts) setManualAccounts(holdingsRes.accounts);
+    if (txs) setRecentTxs(txs);
+    if (pointsRes?.balances) setPoints(pointsRes.balances);
+  }, []);
+
+  useEffect(() => {
+    loadBalances().finally(() => setLoading(false));
+  }, [loadBalances]);
+
+  // Manual sync — calls /api/plaid/sync then refreshes all data
+  const syncNow = useCallback(async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      await fetch("/api/plaid/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      await loadBalances();
+    } catch { /* non-fatal */ }
+    setSyncing(false);
+  }, [syncing, loadBalances]);
+
+  // Fetch 6-month spending for graph
+  useEffect(() => {
+    const now = new Date();
+    const months: string[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    }
+    Promise.all(
+      months.map(m =>
+        fetch(`/api/months/summary?month=${m}`).then(r => r.json()).catch(() => null)
+      )
+    ).then(results => {
+      setMonthlySpend(months.map((m, i) => ({ month: m, amount: results[i]?.expenses ?? 0 })));
     });
   }, []);
 
-  // Fetch month summary for quick stats
-  const fetchMonthSummary = useCallback((month: string) => {
-    const supabase = createClient();
-    const [y, m] = month.split("-").map(Number);
-    const start  = `${y}-${String(m).padStart(2, "0")}-01`;
-    const lastDay = new Date(y, m, 0).getDate();
-    const end    = `${y}-${String(m).padStart(2, "0")}-${lastDay}`;
+  // Backfill historical data from budget seed, then load all snapshots for graph.
+  // Backfill is idempotent (upsert) — safe to run every mount. Ensures the full
+  // 20-month history is always populated even if the table was partially cleared.
+  useEffect(() => {
+    fetch("/api/net-worth/backfill", { method: "POST" })
+      .then(() => fetch("/api/net-worth/snapshot").then(r => r.json()))
+      .then(({ snapshots }) => { if (snapshots?.length) setNwSnapshots(snapshots); })
+      .catch(() => {
+        // Backfill failed — try loading whatever snapshots exist
+        fetch("/api/net-worth/snapshot")
+          .then(r => r.json())
+          .then(({ snapshots }) => { if (snapshots?.length) setNwSnapshots(snapshots); })
+          .catch(() => {});
+      });
+  }, []);
 
-    Promise.all([
-      fetch(`/api/transactions/summary?month=${month}`).then(r => r.json()).catch(() => null),
-      supabase.from("transactions")
-        .select("amount")
-        .eq("pending", false)
-        .lt("amount", 0)
-        .not("category", "in", '("TRANSFER_IN","TRANSFER_OUT","PAYMENT","LOAN_PAYMENTS")')
-        .gte("posted_at", start).lte("posted_at", end),
-    ]).then(([spendRes, { data: incTxs }]) => {
-      if (spendRes?.expenses != null) setMonthExpenses(spendRes.expenses);
-      if (incTxs) setMonthIncome(incTxs.reduce((s: number, t: { amount: number }) => s + Math.abs(t.amount), 0));
-    });
+  // Fetch month summary for quick stats. Uses /api/months/summary which
+  // returns Plaid data when available, falling back to the budget seed so
+  // historical months always show real income/expenses.
+  const fetchMonthSummary = useCallback((month: string) => {
+    fetch(`/api/months/summary?month=${month}`)
+      .then(r => r.json())
+      .then(res => {
+        if (res?.expenses != null) setMonthExpenses(res.expenses);
+        if (res?.income != null)   setMonthIncome(res.income);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => { fetchMonthSummary(spendMonth); }, [spendMonth, fetchMonthSummary]);
@@ -679,6 +926,41 @@ export default function DashboardPage() {
   const acctMap     = Object.fromEntries(balances.map(b => [b.plaid_account_id, b.name]));
   const allAccountCount = Object.values(byGroup).reduce((s, g) => s + g.length, 0) + manualAccounts.length;
 
+  // Persist today's net worth snapshot — but ONLY if the locally-computed
+  // value is at least within 10% of the most recent historical snapshot.
+  // This sanity floor prevents partial Plaid syncs (e.g. only one of four
+  // institutions returning balances) from clobbering an accurate prior value
+  // with a low one, which previously produced a misleading "crash" at the
+  // right edge of the net-worth graph.
+  useEffect(() => {
+    if (loading || !hasData) return;
+    fetch("/api/net-worth/snapshot")
+      .then(r => r.json())
+      .then(({ snapshots }) => {
+        const latest = snapshots?.[snapshots.length - 1]?.net_worth ?? 0;
+        const sane = latest === 0 || netWorth >= latest * 0.9;
+        if (!sane) {
+          console.warn("[dashboard] skipping snapshot save — partial data suspected:", { netWorth, latest });
+          if (snapshots?.length) setNwSnapshots(snapshots);
+          return;
+        }
+        return fetch("/api/net-worth/snapshot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            total_assets: totalAssets,
+            total_liabilities: totals.credit,
+            net_worth: netWorth,
+            breakdown: { cash: totals.cash, investment: totals.investment, retirement: totals.retirement, hsa: totals.hsa, credit: totals.credit },
+          }),
+        })
+          .then(() => fetch("/api/net-worth/snapshot").then(r => r.json()))
+          .then(({ snapshots: s }) => { if (s?.length) setNwSnapshots(s); });
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
+
   if (loading) {
     return (
       <div className="flex flex-col min-h-screen pb-24 max-w-lg mx-auto animate-pulse">
@@ -699,18 +981,13 @@ export default function DashboardPage() {
     <div className="flex flex-col min-h-screen pb-28 max-w-lg mx-auto">
 
       {/* Header */}
-      <div className="px-4 pt-5 pb-3 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-foreground">Dashboard</h1>
-          {lastSync && (
-            <div className="flex items-center gap-1 text-[10px] text-muted-foreground mt-0.5">
-              <RefreshCw size={9} /><span>Synced {lastSync}</span>
-            </div>
-          )}
-        </div>
-        <Link href="/strategy/portfolio" className="flex items-center gap-1 text-[11px] text-primary font-semibold bg-primary/10 px-2.5 py-1.5 rounded-xl">
-          <TrendingUp size={11} />Portfolio
-        </Link>
+      <div className="px-4 pt-5 pb-3">
+        <h1 className="text-xl font-bold text-foreground">Dashboard</h1>
+        <button onClick={syncNow} disabled={syncing}
+          className="flex items-center gap-1 text-[10px] text-muted-foreground mt-0.5 active:opacity-60 disabled:opacity-50">
+          <RefreshCw size={9} className={syncing ? "animate-spin" : ""} />
+          <span>{syncing ? "Syncing…" : lastSync ? `Synced ${lastSync}` : "Tap to sync"}</span>
+        </button>
       </div>
 
       <div className="flex flex-col gap-4 px-4">
@@ -771,6 +1048,11 @@ export default function DashboardPage() {
                   )}
                 </div>
               </div>
+              {nwSnapshots.length >= 1 && (
+                <div className="px-5 pb-4">
+                  <NetWorthGraph snapshots={nwSnapshots} />
+                </div>
+              )}
               {totalAssets > 0 && (
                 <div className="px-5 pb-4 border-t border-border/40 pt-3">
                   <div className="flex h-1.5 rounded-full overflow-hidden gap-px">
@@ -824,6 +1106,9 @@ export default function DashboardPage() {
               />
             </div>
 
+            {/* ── Spending Graph ────────────────────────────────────── */}
+            <SpendingGraph data={monthlySpend} onSelectMonth={setSpendMonth} />
+
             {/* ── All Accounts ──────────────────────────────────────── */}
             <div className="rounded-2xl border border-border bg-card px-5 py-4">
               <div className="flex items-center justify-between mb-1">
@@ -831,22 +1116,32 @@ export default function DashboardPage() {
                   <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">All Accounts</p>
                   <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{allAccountCount}</span>
                 </div>
-                <Link href="/settings/accounts"
-                  className="text-[11px] text-primary font-semibold flex items-center gap-1">
-                  Manage <ChevronRight size={11} />
-                </Link>
+                <div className="flex items-center gap-3">
+                  <Link href="/strategy/portfolio"
+                    className="text-[11px] text-primary font-semibold">
+                    Portfolio
+                  </Link>
+                  <Link href="/settings/accounts"
+                    className="text-[11px] text-primary font-semibold flex items-center gap-1">
+                    Manage <ChevronRight size={11} />
+                  </Link>
+                </div>
               </div>
-              <AccountSection title="Cash & Savings"  accounts={byGroup.cash}       total={totals.cash}       />
-              <AccountSection title="Credit Cards"     accounts={byGroup.credit}     total={totals.credit}     isLiability />
-              <AccountSection title="HSA"              accounts={byGroup.hsa}        total={totals.hsa}        />
-              <AccountSection title="Retirement"       accounts={byGroup.retirement} total={totals.retirement} />
+              <AccountSection title="Cash & Savings"  accounts={byGroup.cash}       total={totals.cash}       cardNameMap={cardNameMap} />
+              <AccountSection title="Credit Cards"     accounts={byGroup.credit}     total={totals.credit}     isLiability cardNameMap={cardNameMap} />
+              <AccountSection title="HSA"              accounts={byGroup.hsa}        total={totals.hsa}        cardNameMap={cardNameMap} />
+              <AccountSection title="Retirement"       accounts={byGroup.retirement} total={totals.retirement} cardNameMap={cardNameMap} />
               <InvestmentSection
                 plaidAccounts={byGroup.investment}
                 manualAccounts={manualInvest}
                 total={totals.investment}
+                cardNameMap={cardNameMap}
               />
-              {/* Prompt to add missing accounts */}
-              {allAccountCount < 3 && (
+              {/* Prompt to add missing accounts — only shown when no Plaid
+                  institutions are linked yet. Once any institution is linked
+                  (regardless of whether its accounts have synced into
+                  card_balances), this prompt is misleading and gets hidden. */}
+              {plaidItemsCount === 0 && (
                 <div className="pt-3 mt-1">
                   <Link href="/settings/accounts"
                     className="flex items-center gap-2 text-xs text-primary font-semibold bg-primary/8 rounded-xl px-3 py-2.5">
