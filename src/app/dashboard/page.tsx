@@ -35,6 +35,8 @@ interface RawTx {
 
 interface PointsBalance { program: string; balance: number; cpp?: number; }
 interface SpendData { expenses: number; categories: Record<string, number>; txCount: number; }
+type Tab = "overview" | "spending" | "income" | "portfolio";
+type AcctGroup = "cash" | "credit" | "investment" | "retirement" | "hsa";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -69,13 +71,8 @@ function cleanMerchant(raw: string | null) {
 }
 
 // ─── Account Classification ────────────────────────────────────────────────
-// Robust fallback: uses explicit Plaid type first, then name-based inference,
-// then credit_limit. This handles accounts synced before migration 0005.
-
-type AcctGroup = "cash" | "credit" | "investment" | "retirement" | "hsa";
 
 function classifyAccount(b: CardBalance): AcctGroup {
-  // Explicit Plaid type (most reliable)
   if (b.account_type === "credit") return "credit";
   if (b.account_subtype === "hsa") return "hsa";
   if (b.account_type === "investment") {
@@ -85,47 +82,38 @@ function classifyAccount(b: CardBalance): AcctGroup {
     return "investment";
   }
   if (b.account_type === "depository") return "cash";
-
-  // Fallback: credit_limit means it's a revolving credit account
   if (b.credit_limit !== null) return "credit";
-
-  // Name-based inference for accounts missing type data
   const n = (b.name ?? "").toLowerCase();
   if (n.includes("401") || n.includes("roth") || n.match(/\bira\b/) ||
-      n.includes("retirement") || n.includes("pension") || n.includes("403b"))
-    return "retirement";
+      n.includes("retirement") || n.includes("pension") || n.includes("403b")) return "retirement";
   if (n.includes("hsa") || n.includes("health savings")) return "hsa";
   if (n.includes("brokerage") || n.includes("invest") || n.includes("portfolio") ||
-      n.includes("stocks") || n.includes("etrade") || n.includes("schwab") ||
-      n.includes("fidelity") || n.includes("merrill") || n.includes("vanguard") ||
-      n.includes("ubs") || n.includes("robinhood"))
+      n.includes("etrade") || n.includes("schwab") || n.includes("fidelity") ||
+      n.includes("merrill") || n.includes("vanguard") || n.includes("ubs") || n.includes("robinhood"))
     return "investment";
-
-  // Default to cash (checking / savings / money market)
   return "cash";
 }
 
 // ─── Branding ──────────────────────────────────────────────────────────────
 
-function getBrand(name: string | null): { bg: string; fg: string; initials: string } {
+function getBrand(name: string | null) {
   const n = (name ?? "").toLowerCase();
-  if (n.includes("chase"))                    return { bg: "#117ACA", fg: "#fff", initials: "C"  };
-  if (n.includes("capital one"))              return { bg: "#C41230", fg: "#fff", initials: "C1" };
-  if (n.includes("fidelity"))                 return { bg: "#52B043", fg: "#fff", initials: "Fi" };
+  if (n.includes("chase"))       return { bg: "#117ACA", fg: "#fff", initials: "C"  };
+  if (n.includes("capital one")) return { bg: "#C41230", fg: "#fff", initials: "C1" };
+  if (n.includes("fidelity"))    return { bg: "#52B043", fg: "#fff", initials: "Fi" };
   if (n.includes("merrill") || n.includes("bofa") || n.includes("bank of america"))
-                                              return { bg: "#D70015", fg: "#fff", initials: "ML" };
+                                 return { bg: "#D70015", fg: "#fff", initials: "ML" };
   if (n.includes("marcus") || n.includes("goldman"))
-                                              return { bg: "#1A1A1A", fg: "#fff", initials: "GS" };
-  if (n.includes("schwab"))                   return { bg: "#0577B6", fg: "#fff", initials: "CS" };
-  if (n.includes("vanguard"))                 return { bg: "#811A24", fg: "#fff", initials: "VG" };
+                                 return { bg: "#1A1A1A", fg: "#fff", initials: "GS" };
+  if (n.includes("schwab"))      return { bg: "#0577B6", fg: "#fff", initials: "CS" };
+  if (n.includes("vanguard"))    return { bg: "#811A24", fg: "#fff", initials: "VG" };
+  if (n.includes("ubs"))         return { bg: "#E40046", fg: "#fff", initials: "UB" };
+  if (n.includes("inspira"))     return { bg: "#1E5A96", fg: "#fff", initials: "In" };
+  if (n.includes("wells"))       return { bg: "#D71E28", fg: "#fff", initials: "WF" };
+  if (n.includes("ally"))        return { bg: "#6B21A8", fg: "#fff", initials: "Al" };
+  if (n.includes("discover"))    return { bg: "#F76F20", fg: "#fff", initials: "Di" };
   if (n.includes("amex") || n.includes("american express"))
-                                              return { bg: "#007BC1", fg: "#fff", initials: "AX" };
-  if (n.includes("ubs"))                      return { bg: "#E40046", fg: "#fff", initials: "UB" };
-  if (n.includes("inspira"))                  return { bg: "#1E5A96", fg: "#fff", initials: "In" };
-  if (n.includes("wells"))                    return { bg: "#D71E28", fg: "#fff", initials: "WF" };
-  if (n.includes("ally"))                     return { bg: "#6B21A8", fg: "#fff", initials: "Al" };
-  if (n.includes("discover"))                 return { bg: "#F76F20", fg: "#fff", initials: "Di" };
-  if (n.includes("citi"))                     return { bg: "#056DAE", fg: "#fff", initials: "Ci" };
+                                 return { bg: "#007BC1", fg: "#fff", initials: "AX" };
   return { bg: "#6B7280", fg: "#fff", initials: (name?.[0] ?? "?").toUpperCase() };
 }
 
@@ -133,7 +121,8 @@ function Avatar({ name, size = "md" }: { name: string | null; size?: "sm" | "md"
   const { bg, fg, initials } = getBrand(name);
   const cls = size === "sm" ? "w-7 h-7 rounded-lg text-[9px]" : "w-8 h-8 rounded-xl text-[10px]";
   return (
-    <div className={`${cls} flex items-center justify-center font-extrabold shrink-0`} style={{ background: bg, color: fg }}>
+    <div className={`${cls} flex items-center justify-center font-extrabold shrink-0`}
+      style={{ background: bg, color: fg }}>
       {initials}
     </div>
   );
@@ -141,11 +130,10 @@ function Avatar({ name, size = "md" }: { name: string | null; size?: "sm" | "md"
 
 // ─── Category emoji ────────────────────────────────────────────────────────
 
-const LABEL_EMOJI: Record<string, string> = {
+const EMOJI: Record<string, string> = {
   Food: "🍽️", Drinks: "🍺", Housing: "🏠", Transportation: "🚗",
   Entertainment: "🎬", Travel: "✈️", "Personal Care": "💇", Health: "❤️",
-  Gifts: "🎁", Shopping: "🛍️", Services: "⚙️", "AI Spend": "🤖",
-  Other: "💸", Income: "💰",
+  Gifts: "🎁", Shopping: "🛍️", Services: "⚙️", "AI Spend": "🤖", Other: "💸",
   FOOD_AND_DRINK: "🍽️", TRANSPORTATION: "🚗", ENTERTAINMENT: "🎬",
   PERSONAL_CARE: "💇", TRAVEL: "✈️", RENT_AND_UTILITIES: "🏠",
   MEDICAL: "❤️", GENERAL_MERCHANDISE: "🛍️", SHOPPING: "🛍️",
@@ -153,52 +141,22 @@ const LABEL_EMOJI: Record<string, string> = {
 };
 
 const PROG_BRAND: Record<string, { bg: string; initials: string }> = {
-  "Chase UR":         { bg: "#117ACA", initials: "C"  },
-  "Capital One":      { bg: "#C41230", initials: "C1" },
-  "Marriott Bonvoy":  { bg: "#8B0000", initials: "MB" },
-  "Amex MR":          { bg: "#C9A84C", initials: "AX" },
+  "Chase UR":        { bg: "#117ACA", initials: "C"  },
+  "Capital One":     { bg: "#C41230", initials: "C1" },
+  "Marriott Bonvoy": { bg: "#8B0000", initials: "MB" },
+  "Amex MR":         { bg: "#C9A84C", initials: "AX" },
 };
 
-// ─── Month Picker ──────────────────────────────────────────────────────────
-
-function MonthPicker({ selected, onChange }: { selected: string; onChange: (m: string) => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const months: Array<{ yyyyMM: string; label: string }> = [];
-  const now = new Date();
-  for (let i = 0; i < 6; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push({
-      yyyyMM: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
-      label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
-    });
-  }
-  return (
-    <div ref={ref} className="flex gap-1.5 overflow-x-auto scrollbar-hide -mx-5 px-5 pb-0.5">
-      {months.map(m => (
-        <button
-          key={m.yyyyMM}
-          onClick={() => onChange(m.yyyyMM)}
-          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
-            m.yyyyMM === selected ? "bg-primary text-white" : "bg-muted text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          {m.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// ─── Account Row ──────────────────────────────────────────────────────────
+// ─── Reusable components ───────────────────────────────────────────────────
 
 function AccountRow({ acct }: { acct: CardBalance }) {
-  const group = classifyAccount(acct);
-  const isCard = group === "credit";
+  const isCard = classifyAccount(acct) === "credit";
   const bal = acct.current_balance ?? 0;
   const util = acct.utilization_pct;
-  const utilColor = util != null ? (util > 30 ? "text-destructive" : util > 9 ? "text-warning" : "text-success") : "";
+  const utilColor = util != null
+    ? (util > 30 ? "text-destructive" : util > 9 ? "text-warning" : "text-success") : "";
   return (
-    <div className="flex items-center gap-3 py-3 first:pt-0">
+    <div className="flex items-center gap-3 py-3">
       <Avatar name={acct.name} size="sm" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-foreground truncate">
@@ -224,22 +182,17 @@ function AccountRow({ acct }: { acct: CardBalance }) {
   );
 }
 
-// ─── Collapsible section ───────────────────────────────────────────────────
-
+// Collapsible account group — hooks at top level of THIS component, not inline
 function AccountSection({
-  title, accounts, total, isLiability, open: defaultOpen = true,
+  title, accounts, total, isLiability,
 }: {
-  title: string; accounts: CardBalance[]; total: number;
-  isLiability?: boolean; open?: boolean;
+  title: string; accounts: CardBalance[]; total: number; isLiability?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(true);
   if (!accounts.length) return null;
   return (
     <div className="border-b border-border/50 last:border-0">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between py-3"
-      >
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between py-3">
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold text-foreground">{title}</span>
           <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{accounts.length}</span>
@@ -252,7 +205,7 @@ function AccountSection({
         </div>
       </button>
       {open && (
-        <div className="pl-0 pb-1 divide-y divide-border/40">
+        <div className="pb-1 divide-y divide-border/40">
           {accounts.map(a => <AccountRow key={a.plaid_account_id} acct={a} />)}
         </div>
       )}
@@ -260,53 +213,178 @@ function AccountSection({
   );
 }
 
-// ─── Tab bar ──────────────────────────────────────────────────────────────
+// Investment section with manual accounts + holdings — proper component
+function InvestmentSection({
+  plaidAccounts, manualAccounts, total,
+}: {
+  plaidAccounts: CardBalance[];
+  manualAccounts: AccountWithHoldings[];
+  total: number;
+}) {
+  const [open, setOpen] = useState(true);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const count = plaidAccounts.length + manualAccounts.length;
+  if (count === 0) return null;
 
-type Tab = "overview" | "spending" | "income" | "portfolio";
+  function toggle(id: string) {
+    setExpanded(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  }
 
-function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
-  const tabs: Array<{ id: Tab; label: string }> = [
-    { id: "overview",  label: "Overview"  },
-    { id: "spending",  label: "Expenses"  },
-    { id: "income",    label: "Income"    },
-    { id: "portfolio", label: "Portfolio" },
-  ];
   return (
-    <div className="flex gap-0 border-b border-border bg-background sticky top-0 z-10">
-      {tabs.map(t => (
-        <button
-          key={t.id}
-          onClick={() => onChange(t.id)}
-          className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 ${
-            active === t.id
-              ? "text-primary border-primary"
-              : "text-muted-foreground border-transparent hover:text-foreground"
-          }`}
-        >
-          {t.label}
+    <div className="border-b border-border/50 last:border-0">
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between py-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-foreground">Investment</span>
+          <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{count}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-bold text-foreground">${fmt(total)}</span>
+          {open ? <ChevronUp size={13} className="text-muted-foreground" /> : <ChevronDown size={13} className="text-muted-foreground" />}
+        </div>
+      </button>
+      {open && (
+        <div className="pb-1 divide-y divide-border/40">
+          {plaidAccounts.map(a => <AccountRow key={a.plaid_account_id} acct={a} />)}
+          {manualAccounts.map(a => {
+            const val = a.liveValue ?? a.balance;
+            const isExp = expanded.has(a.id);
+            return (
+              <div key={a.id}>
+                <div className="flex items-center gap-3 py-3">
+                  <Avatar name={a.name} size="sm" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-medium text-foreground truncate">{a.name}</p>
+                      {a.liveValue !== null && <span className="text-[9px] font-bold bg-success/10 text-success px-1 py-0.5 rounded-full">Live</span>}
+                    </div>
+                    {a.institution && <p className="text-[10px] text-muted-foreground">{a.institution}</p>}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <p className="text-sm font-semibold text-foreground">${fmt(val)}</p>
+                    {a.holdings.length > 0 && (
+                      <button onClick={() => toggle(a.id)}>
+                        {isExp ? <ChevronUp size={12} className="text-muted-foreground" /> : <ChevronDown size={12} className="text-muted-foreground" />}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {isExp && a.holdings.length > 0 && (
+                  <div className="bg-muted/30 rounded-xl px-3 py-2 mb-2 flex flex-col gap-2">
+                    {a.holdings.map(h => (
+                      <div key={h.id} className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] font-bold">{h.ticker ?? "—"}</span>
+                            <span className="text-[10px] text-muted-foreground truncate">{h.name}</span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground">{h.shares} sh{h.livePrice != null && ` · $${fmt(h.livePrice, 2)}`}</span>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-[11px] font-semibold">{h.liveValue != null ? `$${fmt(h.liveValue)}` : "—"}</p>
+                          {h.gainLoss != null && (
+                            <p className={`text-[10px] ${h.gainLoss >= 0 ? "text-success" : "text-destructive"}`}>
+                              {h.gainLoss >= 0 ? "+" : ""}${fmt(Math.abs(h.gainLoss))}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MonthPicker({ selected, onChange }: { selected: string; onChange: (m: string) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const months: Array<{ yyyyMM: string; label: string }> = [];
+  const now = new Date();
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({
+      yyyyMM: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+      label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+    });
+  }
+  return (
+    <div ref={ref} className="flex gap-1.5 overflow-x-auto scrollbar-hide -mx-5 px-5 pb-0.5">
+      {months.map(m => (
+        <button key={m.yyyyMM} onClick={() => onChange(m.yyyyMM)}
+          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+            m.yyyyMM === selected ? "bg-primary text-white" : "bg-muted text-muted-foreground hover:text-foreground"
+          }`}>
+          {m.label}
         </button>
       ))}
     </div>
   );
 }
 
-// ─── Main Page ─────────────────────────────────────────────────────────────
+function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
+  return (
+    <div className="flex border-b border-border bg-background sticky top-0 z-10">
+      {(["overview","spending","income","portfolio"] as Tab[]).map(t => (
+        <button key={t} onClick={() => onChange(t)}
+          className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 capitalize ${
+            active === t ? "text-primary border-primary" : "text-muted-foreground border-transparent hover:text-foreground"
+          }`}>
+          {t === "spending" ? "Expenses" : t.charAt(0).toUpperCase() + t.slice(1)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TxRow({ tx, acctMap }: { tx: RawTx; acctMap: Record<string, string | null> }) {
+  const acctName = acctMap[tx.plaid_account_id ?? ""] ?? null;
+  const brand = getBrand(acctName);
+  const isDebit = tx.amount > 0;
+  return (
+    <div className="py-3 flex items-center gap-3 first:pt-0">
+      <span className="text-lg w-7 text-center shrink-0">{EMOJI[tx.category ?? ""] ?? "💸"}</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-foreground truncate">{cleanMerchant(tx.merchant_raw)}</p>
+        <div className="flex items-center gap-1.5 mt-0.5">
+          {acctName && (
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+              style={{ background: brand.bg + "22", color: brand.bg }}>
+              {brand.initials}
+            </span>
+          )}
+          <span className="text-[10px] text-muted-foreground">{relDate(tx.posted_at)}</span>
+        </div>
+      </div>
+      <p className={`text-sm font-bold shrink-0 ${isDebit ? "text-foreground" : "text-success"}`}>
+        {isDebit ? "−" : "+"}${fmt(Math.abs(tx.amount), 2)}
+      </p>
+    </div>
+  );
+}
+
+// ─── Main page ─────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const [tab, setTab]                     = useState<Tab>("overview");
-  const [balances, setBalances]           = useState<CardBalance[]>([]);
+  const [tab, setTab]                       = useState<Tab>("overview");
+  const [balances, setBalances]             = useState<CardBalance[]>([]);
   const [manualAccounts, setManualAccounts] = useState<AccountWithHoldings[]>([]);
-  const [recentTxs, setRecentTxs]         = useState<RawTx[]>([]);
-  const [points, setPoints]               = useState<PointsBalance[]>([]);
-  const [spend, setSpend]                 = useState<SpendData | null>(null);
-  const [income, setIncome]               = useState<RawTx[]>([]);
-  const [spendMonth, setSpendMonth]       = useState(currentYYYYMM());
-  const [spendLoading, setSpendLoading]   = useState(false);
-  const [expandedInvest, setExpandedInvest] = useState<Set<string>>(new Set());
-  const [lastSync, setLastSync]           = useState<string | null>(null);
-  const [loading, setLoading]             = useState(true);
+  const [recentTxs, setRecentTxs]           = useState<RawTx[]>([]);
+  const [points, setPoints]                 = useState<PointsBalance[]>([]);
+  const [spend, setSpend]                   = useState<SpendData | null>(null);
+  const [income, setIncome]                 = useState<RawTx[]>([]);
+  const [spendMonth, setSpendMonth]         = useState(currentYYYYMM());
+  const [spendLoading, setSpendLoading]     = useState(false);
+  const [lastSync, setLastSync]             = useState<string | null>(null);
+  const [loading, setLoading]               = useState(true);
 
-  // Load base data
   useEffect(() => {
     const supabase = createClient();
     Promise.all([
@@ -319,7 +397,7 @@ export default function DashboardPage() {
         .from("transactions")
         .select("id,posted_at,amount,merchant_raw,category,plaid_account_id")
         .eq("pending", false)
-        .gt("amount", 0) // debits only for recent activity
+        .gt("amount", 0)
         .order("posted_at", { ascending: false })
         .limit(8),
       fetch("/api/points-balances").then(r => r.json()).catch(() => ({ balances: [] })),
@@ -339,7 +417,6 @@ export default function DashboardPage() {
     });
   }, []);
 
-  // Fetch spend + income when month changes
   const fetchMonthData = useCallback((month: string) => {
     setSpend(null);
     setSpendLoading(true);
@@ -348,14 +425,13 @@ export default function DashboardPage() {
     const start = `${y}-${String(m).padStart(2, "0")}-01`;
     const lastDay = new Date(y, m, 0).getDate();
     const end = `${y}-${String(m).padStart(2, "0")}-${lastDay}`;
-
     Promise.all([
       fetch(`/api/transactions/summary?month=${month}`).then(r => r.json()).catch(() => null),
       supabase
         .from("transactions")
         .select("id,posted_at,amount,merchant_raw,category,plaid_account_id")
         .eq("pending", false)
-        .lt("amount", 0) // negative = money in (income/refunds)
+        .lt("amount", 0)
         .not("category", "in", '("TRANSFER_IN","TRANSFER_OUT","PAYMENT","LOAN_PAYMENTS")')
         .gte("posted_at", start)
         .lte("posted_at", end)
@@ -378,16 +454,19 @@ export default function DashboardPage() {
     retirement: balances.filter(b => classifyAccount(b) === "retirement"),
     hsa:        balances.filter(b => classifyAccount(b) === "hsa"),
   };
+  const manualRetirement = manualAccounts.filter(a => a.account_type === "retirement");
+  const manualHsa        = manualAccounts.filter(a => a.account_type === "hsa");
+  const manualInvest     = manualAccounts.filter(a => !["retirement","hsa"].includes(a.account_type));
 
   const totals = {
     cash:       byGroup.cash.reduce((s, b)       => s + (b.current_balance ?? 0), 0),
     credit:     byGroup.credit.reduce((s, b)     => s + (b.current_balance ?? 0), 0),
-    investment: byGroup.investment.reduce((s, b) => s + (b.current_balance ?? 0), 0) +
-                manualAccounts.filter(a => !["retirement","hsa"].includes(a.account_type)).reduce((s, a) => s + (a.liveValue ?? a.balance), 0),
-    retirement: byGroup.retirement.reduce((s, b) => s + (b.current_balance ?? 0), 0) +
-                manualAccounts.filter(a => a.account_type === "retirement").reduce((s, a) => s + (a.liveValue ?? a.balance), 0),
-    hsa:        byGroup.hsa.reduce((s, b)        => s + (b.current_balance ?? 0), 0) +
-                manualAccounts.filter(a => a.account_type === "hsa").reduce((s, a) => s + (a.liveValue ?? a.balance), 0),
+    investment: byGroup.investment.reduce((s, b) => s + (b.current_balance ?? 0), 0)
+                + manualInvest.reduce((s, a) => s + (a.liveValue ?? a.balance), 0),
+    retirement: byGroup.retirement.reduce((s, b) => s + (b.current_balance ?? 0), 0)
+                + manualRetirement.reduce((s, a) => s + (a.liveValue ?? a.balance), 0),
+    hsa:        byGroup.hsa.reduce((s, b)        => s + (b.current_balance ?? 0), 0)
+                + manualHsa.reduce((s, a) => s + (a.liveValue ?? a.balance), 0),
   };
 
   const totalAssets = totals.cash + totals.investment + totals.retirement + totals.hsa;
@@ -400,20 +479,20 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div className="flex flex-col min-h-screen pb-24 max-w-lg mx-auto animate-pulse">
-        <div className="px-4 pt-6 pb-4"><div className="h-6 w-32 rounded-lg bg-muted mb-1" /><div className="h-4 w-24 rounded bg-muted" /></div>
+        <div className="px-4 pt-5 pb-3"><div className="h-6 w-32 rounded-lg bg-muted mb-1.5" /><div className="h-3 w-24 rounded bg-muted" /></div>
         <div className="h-10 bg-muted" />
         <div className="px-4 pt-4 flex flex-col gap-3">
-          {[40, 32, 48, 32, 40].map((h, i) => <div key={i} className={`h-${h} rounded-2xl bg-muted`} style={{ height: h * 4 }} />)}
+          <div className="h-36 rounded-2xl bg-muted" />
+          <div className="h-48 rounded-2xl bg-muted" />
+          <div className="h-40 rounded-2xl bg-muted" />
         </div>
       </div>
     );
   }
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  //  OVERVIEW TAB
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ── Overview tab ──────────────────────────────────────────────────────────
 
-  const overviewTab = (
+  const Overview = (
     <div className="flex flex-col gap-4 px-4 pt-4">
       {!hasData && (
         <div className="rounded-2xl border-2 border-dashed border-border p-10 flex flex-col items-center text-center gap-3">
@@ -421,241 +500,135 @@ export default function DashboardPage() {
             <Building2 size={28} className="text-primary" />
           </div>
           <p className="font-bold text-lg text-foreground">Connect your accounts</p>
-          <p className="text-sm text-muted-foreground max-w-xs">Link your banks and credit cards to see your full financial picture here.</p>
-          <Link href="/settings/accounts" className="bg-primary text-white text-sm font-semibold px-6 py-3 rounded-xl">
-            Connect Accounts
-          </Link>
+          <p className="text-sm text-muted-foreground max-w-xs">Link your banks and credit cards to see balances, transactions, and net worth.</p>
+          <Link href="/settings/accounts" className="bg-primary text-white text-sm font-semibold px-6 py-3 rounded-xl">Connect Accounts</Link>
         </div>
       )}
 
-      {/* Net Worth Hero */}
       {hasData && (
-        <div className="rounded-2xl border border-border bg-card overflow-hidden">
-          <div className="px-5 pt-5 pb-4">
-            <div className="flex items-start justify-between mb-1">
-              <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Net Worth</p>
-              <Link href="/strategy/projection" className="flex items-center gap-1 text-[10px] text-primary font-semibold">
-                10-yr projection <ArrowUpRight size={10} />
+        <>
+          {/* NW Hero */}
+          <div className="rounded-2xl border border-border bg-card overflow-hidden">
+            <div className="px-5 pt-5 pb-4">
+              <div className="flex items-start justify-between mb-1">
+                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Net Worth</p>
+                <Link href="/strategy/projection" className="flex items-center gap-1 text-[10px] text-primary font-semibold">
+                  10-yr projection <ArrowUpRight size={10} />
+                </Link>
+              </div>
+              <p className="text-4xl font-extrabold text-foreground tracking-tight mt-1">{fmtK(netWorth)}</p>
+              <div className="flex gap-5 mt-3 flex-wrap">
+                <div><p className="text-[10px] text-muted-foreground">Assets</p><p className="text-sm font-bold text-success">{fmtK(totalAssets)}</p></div>
+                <div className="w-px bg-border" />
+                <div><p className="text-[10px] text-muted-foreground">Debt</p><p className="text-sm font-bold text-destructive">{fmtK(totals.credit)}</p></div>
+                {totals.cash > 0 && <><div className="w-px bg-border" /><div><p className="text-[10px] text-muted-foreground">Cash</p><p className="text-sm font-bold text-foreground">{fmtK(totals.cash)}</p></div></>}
+              </div>
+            </div>
+            {totalAssets > 0 && (
+              <div className="px-5 pb-4 border-t border-border/40 pt-3">
+                <div className="flex h-1.5 rounded-full overflow-hidden gap-px">
+                  {([
+                    { val: totals.cash, color: "#117ACA" },
+                    { val: totals.hsa,  color: "#22c55e" },
+                    { val: totals.retirement, color: "#3b82f6" },
+                    { val: totals.investment, color: "#8b5cf6" },
+                  ] as { val: number; color: string }[]).filter(s => s.val > 0).map((s, i) => (
+                    <div key={i} className="h-full" style={{ width: `${(s.val / totalAssets) * 100}%`, backgroundColor: s.color }} />
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                  {[
+                    { label: "Cash",       val: totals.cash,       color: "#117ACA" },
+                    { label: "HSA",        val: totals.hsa,        color: "#22c55e" },
+                    { label: "Retirement", val: totals.retirement, color: "#3b82f6" },
+                    { label: "Invested",   val: totals.investment, color: "#8b5cf6" },
+                  ].filter(s => s.val > 0).map(s => (
+                    <div key={s.label} className="flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+                      <span className="text-[10px] text-muted-foreground">{s.label} <span className="font-semibold text-foreground">{fmtK(s.val)}</span></span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* All Accounts */}
+          <div className="rounded-2xl border border-border bg-card px-5 py-4">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">All Accounts</p>
+              <Link href="/settings/accounts" className="text-[11px] text-primary font-semibold flex items-center gap-1">
+                Manage <ChevronRight size={11} />
               </Link>
             </div>
-            <p className="text-4xl font-extrabold text-foreground tracking-tight mt-1">{fmtK(netWorth)}</p>
-            <div className="flex gap-5 mt-3">
-              <div>
-                <p className="text-[10px] text-muted-foreground">Assets</p>
-                <p className="text-sm font-bold text-success">{fmtK(totalAssets)}</p>
-              </div>
-              <div className="w-px bg-border" />
-              <div>
-                <p className="text-[10px] text-muted-foreground">Debt</p>
-                <p className="text-sm font-bold text-destructive">{fmtK(totals.credit)}</p>
-              </div>
-              {totals.cash > 0 && (
-                <>
-                  <div className="w-px bg-border" />
-                  <div>
-                    <p className="text-[10px] text-muted-foreground">Cash</p>
-                    <p className="text-sm font-bold text-foreground">{fmtK(totals.cash)}</p>
-                  </div>
-                </>
-              )}
-            </div>
+            <AccountSection title="Cash & Savings"  accounts={byGroup.cash}       total={totals.cash}       />
+            <AccountSection title="HSA"              accounts={byGroup.hsa}        total={totals.hsa}        />
+            <AccountSection title="Retirement"       accounts={byGroup.retirement} total={totals.retirement} />
+            <InvestmentSection
+              plaidAccounts={byGroup.investment}
+              manualAccounts={manualInvest}
+              total={totals.investment}
+            />
+            <AccountSection title="Credit Cards" accounts={byGroup.credit} total={totals.credit} isLiability />
           </div>
-          {totalAssets > 0 && (
-            <div className="px-5 pb-4 border-t border-border/40 pt-3">
-              <div className="flex h-1.5 rounded-full overflow-hidden gap-px">
-                {([
-                  { val: totals.cash,       color: "#117ACA" },
-                  { val: totals.hsa,        color: "#22c55e" },
-                  { val: totals.retirement, color: "#3b82f6" },
-                  { val: totals.investment, color: "#8b5cf6" },
-                ] as Array<{ val: number; color: string }>).filter(s => s.val > 0).map((s, i) => (
-                  <div key={i} className="h-full" style={{ width: `${(s.val / totalAssets) * 100}%`, backgroundColor: s.color }} />
-                ))}
+
+          {/* Recent activity */}
+          {recentTxs.length > 0 && (
+            <div className="rounded-2xl border border-border bg-card px-5 py-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Recent Activity</p>
+                <Link href="/transactions" className="text-[11px] text-primary font-semibold flex items-center gap-1">
+                  All transactions <ChevronRight size={11} />
+                </Link>
               </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-                {[
-                  { label: "Cash",       val: totals.cash,       color: "#117ACA" },
-                  { label: "HSA",        val: totals.hsa,        color: "#22c55e" },
-                  { label: "Retirement", val: totals.retirement, color: "#3b82f6" },
-                  { label: "Invested",   val: totals.investment, color: "#8b5cf6" },
-                ].filter(s => s.val > 0).map(s => (
-                  <div key={s.label} className="flex items-center gap-1.5">
-                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
-                    <span className="text-[10px] text-muted-foreground">{s.label} <span className="font-semibold text-foreground">{fmtK(s.val)}</span></span>
-                  </div>
-                ))}
+              <div className="flex flex-col divide-y divide-border/50">
+                {recentTxs.map(tx => <TxRow key={tx.id} tx={tx} acctMap={acctMap} />)}
               </div>
             </div>
           )}
-        </div>
-      )}
 
-      {/* All Accounts */}
-      {hasData && (
-        <div className="rounded-2xl border border-border bg-card px-5 py-4">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">All Accounts</p>
-            <Link href="/settings/accounts" className="text-[11px] text-primary font-semibold flex items-center gap-1">
-              Manage <ChevronRight size={11} />
-            </Link>
-          </div>
-          <AccountSection title="Cash & Savings"   accounts={byGroup.cash}       total={totals.cash}       />
-          <AccountSection title="HSA"               accounts={byGroup.hsa}        total={totals.hsa}        />
-          <AccountSection title="Retirement"        accounts={byGroup.retirement} total={totals.retirement} />
-          {/* Investment: Plaid + manual combined */}
-          {(byGroup.investment.length > 0 || manualAccounts.length > 0) && (() => {
-            const [open, setOpen] = useState(true);
-            const allInv = byGroup.investment.length + manualAccounts.length;
-            return (
-              <div className="border-b border-border/50 last:border-0">
-                <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between py-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-foreground">Investment</span>
-                    <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{allInv}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-foreground">${fmt(totals.investment)}</span>
-                    {open ? <ChevronUp size={13} className="text-muted-foreground" /> : <ChevronDown size={13} className="text-muted-foreground" />}
-                  </div>
-                </button>
-                {open && (
-                  <div className="pb-1 divide-y divide-border/40">
-                    {byGroup.investment.map(a => <AccountRow key={a.plaid_account_id} acct={a} />)}
-                    {manualAccounts.map(a => {
-                      const val = a.liveValue ?? a.balance;
-                      const isExp = expandedInvest.has(a.id);
-                      return (
-                        <div key={a.id}>
-                          <div className="flex items-center gap-3 py-3">
-                            <Avatar name={a.name} size="sm" />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <p className="text-sm font-medium text-foreground truncate">{a.name}</p>
-                                {a.liveValue !== null && <span className="text-[9px] font-bold bg-success/10 text-success px-1 py-0.5 rounded-full">Live</span>}
-                              </div>
-                              {a.institution && <p className="text-[10px] text-muted-foreground">{a.institution}</p>}
-                            </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <p className="text-sm font-semibold text-foreground">${fmt(val)}</p>
-                              {a.holdings.length > 0 && (
-                                <button onClick={() => setExpandedInvest(prev => { const n = new Set(prev); if (n.has(a.id)) n.delete(a.id); else n.add(a.id); return n; })}>
-                                  {isExp ? <ChevronUp size={12} className="text-muted-foreground" /> : <ChevronDown size={12} className="text-muted-foreground" />}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                          {isExp && (
-                            <div className="bg-muted/30 rounded-xl px-3 py-2 mb-2 flex flex-col gap-2">
-                              {a.holdings.map(h => (
-                                <div key={h.id} className="flex items-center justify-between gap-2">
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-[11px] font-bold text-foreground">{h.ticker ?? "—"}</span>
-                                      <span className="text-[10px] text-muted-foreground truncate">{h.name}</span>
-                                    </div>
-                                    <span className="text-[10px] text-muted-foreground">{h.shares} sh{h.livePrice != null && ` · $${fmt(h.livePrice, 2)}`}</span>
-                                  </div>
-                                  <div className="text-right shrink-0">
-                                    <p className="text-[11px] font-semibold">{h.liveValue != null ? `$${fmt(h.liveValue)}` : "—"}</p>
-                                    {h.gainLoss != null && <p className={`text-[10px] ${h.gainLoss >= 0 ? "text-success" : "text-destructive"}`}>{h.gainLoss >= 0 ? "+" : ""}${fmt(Math.abs(h.gainLoss))}</p>}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+          {/* Points */}
+          {points.length > 0 && (
+            <div className="rounded-2xl border border-border bg-card px-5 py-4">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Rewards Points</p>
+                <Link href="/strategy/points" className="text-[11px] text-primary font-semibold flex items-center gap-1">Manage <ChevronRight size={11} /></Link>
               </div>
-            );
-          })()}
-          <AccountSection title="Credit Cards" accounts={byGroup.credit} total={totals.credit} isLiability />
-        </div>
-      )}
-
-      {/* Recent Transactions */}
-      {recentTxs.length > 0 && (
-        <div className="rounded-2xl border border-border bg-card px-5 py-4">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Recent Activity</p>
-            <Link href="/transactions" className="text-[11px] text-primary font-semibold flex items-center gap-1">
-              All transactions <ChevronRight size={11} />
-            </Link>
-          </div>
-          <div className="flex flex-col divide-y divide-border/50">
-            {recentTxs.map(tx => {
-              const acctName = acctMap[tx.plaid_account_id ?? ""] ?? null;
-              const brand = getBrand(acctName);
-              return (
-                <div key={tx.id} className="py-3 flex items-center gap-3 first:pt-0">
-                  <span className="text-lg w-7 text-center shrink-0">{LABEL_EMOJI[tx.category ?? ""] ?? "💸"}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-foreground truncate">{cleanMerchant(tx.merchant_raw)}</p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      {acctName && (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: brand.bg + "22", color: brand.bg }}>
-                          {brand.initials}
-                        </span>
-                      )}
-                      <span className="text-[10px] text-muted-foreground">{relDate(tx.posted_at)}</span>
+              <div className="flex items-baseline justify-between mt-2 mb-4">
+                <p className="text-2xl font-extrabold text-foreground">~${fmt(totalPoints)}</p>
+                <Link href="/strategy/deals" className="flex items-center gap-1 text-[11px] text-primary font-semibold bg-primary/10 px-2.5 py-1.5 rounded-xl">
+                  <Coins size={11} />Best deals →
+                </Link>
+              </div>
+              <div className="flex flex-col divide-y divide-border/50">
+                {points.map(p => {
+                  const estVal = (p.balance * (p.cpp ?? 1)) / 100;
+                  const brand = PROG_BRAND[p.program] ?? { bg: "#6B7280", initials: "?" };
+                  return (
+                    <div key={p.program} className="py-3 flex items-center gap-3 first:pt-0">
+                      <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-extrabold text-white shrink-0" style={{ background: brand.bg }}>{brand.initials}</div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground">{p.program}</p>
+                        <p className="text-[10px] text-muted-foreground">{p.cpp ?? 1}¢ / pt</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-bold text-foreground">{fmt(p.balance)}</p>
+                        <p className="text-[10px] text-muted-foreground">~${fmt(estVal)}</p>
+                      </div>
                     </div>
-                  </div>
-                  <p className="text-sm font-bold text-foreground shrink-0">−${fmt(tx.amount, 2)}</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Points */}
-      {points.length > 0 && (
-        <div className="rounded-2xl border border-border bg-card px-5 py-4">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Rewards Points</p>
-            <Link href="/strategy/points" className="text-[11px] text-primary font-semibold flex items-center gap-1">
-              Manage <ChevronRight size={11} />
-            </Link>
-          </div>
-          <div className="flex items-baseline justify-between mt-2 mb-4">
-            <p className="text-2xl font-extrabold text-foreground">~${fmt(totalPoints)}</p>
-            <Link href="/strategy/deals" className="flex items-center gap-1 text-[11px] text-primary font-semibold bg-primary/10 px-2.5 py-1.5 rounded-xl">
-              <Coins size={11} />Best deals →
-            </Link>
-          </div>
-          <div className="flex flex-col divide-y divide-border/50">
-            {points.map(p => {
-              const estVal = (p.balance * (p.cpp ?? 1)) / 100;
-              const brand = PROG_BRAND[p.program] ?? { bg: "#6B7280", initials: "?" };
-              return (
-                <div key={p.program} className="py-3 flex items-center gap-3 first:pt-0">
-                  <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-extrabold text-white shrink-0" style={{ background: brand.bg }}>
-                    {brand.initials}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-foreground">{p.program}</p>
-                    <p className="text-[10px] text-muted-foreground">{p.cpp ?? 1}¢ / pt</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-bold text-foreground">{fmt(p.balance)}</p>
-                    <p className="text-[10px] text-muted-foreground">~${fmt(estVal)}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  //  SPENDING TAB
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ── Spending tab ──────────────────────────────────────────────────────────
 
-  const spendingTab = (
+  const Spending = (
     <div className="flex flex-col gap-4 px-4 pt-4">
       <div className="rounded-2xl border border-border bg-card px-5 py-4">
         <div className="flex items-center justify-between mb-3">
@@ -663,15 +636,13 @@ export default function DashboardPage() {
             <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Expenses</p>
             <p className="text-xs text-muted-foreground mt-0.5">{monthLabel(spendMonth)}</p>
           </div>
-          <Link href="/transactions" className="text-[11px] text-primary font-semibold flex items-center gap-1">
-            All <ChevronRight size={11} />
-          </Link>
+          <Link href="/transactions" className="text-[11px] text-primary font-semibold flex items-center gap-1">All <ChevronRight size={11} /></Link>
         </div>
         <MonthPicker selected={spendMonth} onChange={setSpendMonth} />
         <div className="mt-4">
-          {spendLoading && <div className="animate-pulse flex flex-col gap-2">{[1,2,3,4].map(i => <div key={i} className="h-8 rounded-lg bg-muted" />)}</div>}
+          {spendLoading && <div className="animate-pulse flex flex-col gap-2">{[1,2,3,4].map(i=><div key={i} className="h-8 rounded-lg bg-muted"/>)}</div>}
           {!spendLoading && (!spend || spend.txCount === 0) && (
-            <div className="py-6 text-center"><p className="text-sm text-muted-foreground">No expenses found for this month</p></div>
+            <div className="py-8 text-center"><p className="text-sm text-muted-foreground">No expenses for this month</p></div>
           )}
           {!spendLoading && spend && spend.txCount > 0 && (
             <>
@@ -680,11 +651,11 @@ export default function DashboardPage() {
                 <p className="text-[11px] text-muted-foreground">{spend.txCount} transactions</p>
               </div>
               <div className="flex flex-col gap-3">
-                {Object.entries(spend.categories).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => {
+                {Object.entries(spend.categories).sort((a,b)=>b[1]-a[1]).map(([cat,amt])=>{
                   const pct = (amt / spend.expenses) * 100;
                   return (
                     <div key={cat} className="flex items-center gap-3">
-                      <span className="text-base w-7 text-center shrink-0">{LABEL_EMOJI[cat] ?? "💸"}</span>
+                      <span className="text-base w-7 text-center shrink-0">{EMOJI[cat]??"💸"}</span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs font-semibold text-foreground">{cat}</span>
@@ -692,7 +663,7 @@ export default function DashboardPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                            <div className="h-full rounded-full bg-primary/70" style={{ width: `${pct}%` }} />
+                            <div className="h-full rounded-full bg-primary/70" style={{width:`${pct}%`}}/>
                           </div>
                           <span className="text-[10px] text-muted-foreground w-8 text-right shrink-0">{pct.toFixed(0)}%</span>
                         </div>
@@ -708,11 +679,9 @@ export default function DashboardPage() {
     </div>
   );
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  //  INCOME TAB
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ── Income tab ────────────────────────────────────────────────────────────
 
-  const incomeTab = (
+  const Income = (
     <div className="flex flex-col gap-4 px-4 pt-4">
       <div className="rounded-2xl border border-border bg-card px-5 py-4">
         <div className="mb-3">
@@ -721,11 +690,11 @@ export default function DashboardPage() {
         </div>
         <MonthPicker selected={spendMonth} onChange={setSpendMonth} />
         <div className="mt-4">
-          {spendLoading && <div className="animate-pulse flex flex-col gap-2">{[1,2,3].map(i => <div key={i} className="h-10 rounded-lg bg-muted" />)}</div>}
+          {spendLoading && <div className="animate-pulse flex flex-col gap-2">{[1,2,3].map(i=><div key={i} className="h-10 rounded-lg bg-muted"/>)}</div>}
           {!spendLoading && income.length === 0 && (
-            <div className="py-6 text-center">
+            <div className="py-8 text-center">
               <p className="text-sm text-muted-foreground">No income transactions found</p>
-              <p className="text-xs text-muted-foreground mt-1">Income appears as credits from your connected accounts</p>
+              <p className="text-xs text-muted-foreground mt-1">Income appears as credits from connected accounts</p>
             </div>
           )}
           {!spendLoading && income.length > 0 && (
@@ -735,27 +704,7 @@ export default function DashboardPage() {
                 <p className="text-[11px] text-muted-foreground">{income.length} deposits</p>
               </div>
               <div className="flex flex-col divide-y divide-border/50">
-                {income.map(tx => {
-                  const acctName = acctMap[tx.plaid_account_id ?? ""] ?? null;
-                  const brand = getBrand(acctName);
-                  return (
-                    <div key={tx.id} className="py-3 flex items-center gap-3 first:pt-0">
-                      <span className="text-lg w-7 text-center shrink-0">💰</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-foreground truncate">{cleanMerchant(tx.merchant_raw)}</p>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          {acctName && (
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: brand.bg + "22", color: brand.bg }}>
-                              {brand.initials}
-                            </span>
-                          )}
-                          <span className="text-[10px] text-muted-foreground">{relDate(tx.posted_at)}</span>
-                        </div>
-                      </div>
-                      <p className="text-sm font-bold text-success shrink-0">+${fmt(Math.abs(tx.amount), 2)}</p>
-                    </div>
-                  );
-                })}
+                {income.map(tx => <TxRow key={tx.id} tx={tx} acctMap={acctMap} />)}
               </div>
             </>
           )}
@@ -764,52 +713,45 @@ export default function DashboardPage() {
       {spend && income.length > 0 && (
         <div className="rounded-2xl border border-border bg-card px-5 py-4">
           <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Month Summary</p>
-          <div className="flex flex-col gap-3">
-            {[
-              { label: "Income",  val: monthIncome,    color: "text-success",     bar: "bg-success"     },
-              { label: "Spent",   val: spend.expenses, color: "text-destructive", bar: "bg-destructive" },
-              { label: "Net",     val: monthIncome - spend.expenses, color: monthIncome - spend.expenses >= 0 ? "text-success" : "text-destructive", bar: "bg-primary" },
-            ].map(r => (
-              <div key={r.label} className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground w-16">{r.label}</span>
-                <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden mx-3">
-                  <div className={`h-full ${r.bar} rounded-full`} style={{ width: `${Math.min(Math.abs(r.val) / Math.max(monthIncome, spend.expenses) * 100, 100)}%` }} />
-                </div>
-                <span className={`text-sm font-bold ${r.color} w-20 text-right`}>{r.val >= 0 ? "" : "−"}${fmt(Math.abs(r.val))}</span>
+          {[
+            { label: "Income",  val: monthIncome,                    color: "text-success",     bar: "bg-success"     },
+            { label: "Spent",   val: spend.expenses,                  color: "text-destructive", bar: "bg-destructive" },
+            { label: "Net",     val: monthIncome - spend.expenses,     color: monthIncome - spend.expenses >= 0 ? "text-success" : "text-destructive", bar: "bg-primary" },
+          ].map(r => (
+            <div key={r.label} className="flex items-center justify-between mb-2.5 last:mb-0">
+              <span className="text-sm text-muted-foreground w-14">{r.label}</span>
+              <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden mx-3">
+                <div className={`h-full ${r.bar} rounded-full`}
+                  style={{ width: `${Math.min(Math.abs(r.val) / Math.max(monthIncome, spend.expenses, 1) * 100, 100)}%` }} />
               </div>
-            ))}
-          </div>
+              <span className={`text-sm font-bold ${r.color} w-20 text-right`}>{r.val < 0 ? "−" : ""}${fmt(Math.abs(r.val))}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  //  PORTFOLIO TAB
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ── Portfolio tab ─────────────────────────────────────────────────────────
 
-  const portfolioTab = (
+  const Portfolio = (
     <div className="flex flex-col gap-4 px-4 pt-4">
-      {/* Summary */}
       <div className="rounded-2xl border border-border bg-card px-5 py-4">
         <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Total Invested</p>
         <p className="text-3xl font-extrabold text-foreground">{fmtK(totals.investment + totals.retirement + totals.hsa)}</p>
-        <div className="flex gap-5 mt-3">
+        <div className="flex gap-5 mt-3 flex-wrap">
           {totals.retirement > 0 && <div><p className="text-[10px] text-muted-foreground">Retirement</p><p className="text-sm font-bold text-blue-600">{fmtK(totals.retirement)}</p></div>}
-          {totals.investment > 0 && <div className="w-px bg-border" />}
-          {totals.investment > 0 && <div><p className="text-[10px] text-muted-foreground">Brokerage</p><p className="text-sm font-bold text-violet-600">{fmtK(totals.investment)}</p></div>}
-          {totals.hsa > 0 && <div className="w-px bg-border" />}
-          {totals.hsa > 0 && <div><p className="text-[10px] text-muted-foreground">HSA</p><p className="text-sm font-bold text-emerald-600">{fmtK(totals.hsa)}</p></div>}
+          {totals.investment > 0 && <><div className="w-px bg-border" /><div><p className="text-[10px] text-muted-foreground">Brokerage</p><p className="text-sm font-bold text-violet-600">{fmtK(totals.investment)}</p></div></>}
+          {totals.hsa > 0 && <><div className="w-px bg-border" /><div><p className="text-[10px] text-muted-foreground">HSA</p><p className="text-sm font-bold text-emerald-600">{fmtK(totals.hsa)}</p></div></>}
         </div>
       </div>
 
-      {/* Retirement accounts */}
-      {(byGroup.retirement.length > 0 || manualAccounts.filter(a => a.account_type === "retirement").length > 0) && (
+      {byGroup.retirement.length + manualRetirement.length > 0 && (
         <div className="rounded-2xl border border-border bg-card px-5 py-4">
-          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Retirement</p>
+          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Retirement</p>
           <div className="flex flex-col divide-y divide-border/50">
             {byGroup.retirement.map(a => <AccountRow key={a.plaid_account_id} acct={a} />)}
-            {manualAccounts.filter(a => a.account_type === "retirement").map(a => (
+            {manualRetirement.map(a => (
               <div key={a.id} className="py-3 flex items-center gap-3 first:pt-0">
                 <Avatar name={a.name} size="sm" />
                 <p className="flex-1 text-sm font-medium text-foreground truncate">{a.name}</p>
@@ -820,78 +762,35 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Investment accounts with holdings */}
-      {(byGroup.investment.length > 0 || manualAccounts.filter(a => !["retirement","hsa"].includes(a.account_type)).length > 0) && (
-        <div className="rounded-2xl border border-border bg-card px-5 py-4">
-          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Brokerage</p>
-          <div className="flex flex-col divide-y divide-border/50">
-            {byGroup.investment.map(a => <AccountRow key={a.plaid_account_id} acct={a} />)}
-            {manualAccounts.filter(a => !["retirement","hsa"].includes(a.account_type)).map(a => {
-              const val = a.liveValue ?? a.balance;
-              const isExp = expandedInvest.has(a.id);
-              return (
-                <div key={a.id}>
-                  <div className="py-3 flex items-center gap-3 first:pt-0">
-                    <Avatar name={a.name} size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-sm font-medium text-foreground truncate">{a.name}</p>
-                        {a.liveValue !== null && <span className="text-[9px] font-bold bg-success/10 text-success px-1 py-0.5 rounded-full">Live</span>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <p className="text-sm font-semibold text-foreground">${fmt(val)}</p>
-                      {a.holdings.length > 0 && (
-                        <button onClick={() => setExpandedInvest(prev => { const n = new Set(prev); if (n.has(a.id)) n.delete(a.id); else n.add(a.id); return n; })}>
-                          {isExp ? <ChevronUp size={12} className="text-muted-foreground" /> : <ChevronDown size={12} className="text-muted-foreground" />}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  {isExp && (
-                    <div className="bg-muted/30 rounded-xl px-3 py-2 mb-2 flex flex-col gap-2">
-                      {a.holdings.map(h => (
-                        <div key={h.id} className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[11px] font-bold">{h.ticker ?? "—"}</span>
-                              <span className="text-[10px] text-muted-foreground truncate">{h.name}</span>
-                            </div>
-                            <span className="text-[10px] text-muted-foreground">{h.shares} sh{h.livePrice != null && ` · $${fmt(h.livePrice, 2)}`}</span>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <p className="text-[11px] font-semibold">{h.liveValue != null ? `$${fmt(h.liveValue)}` : "—"}</p>
-                            {h.gainLoss != null && <p className={`text-[10px] ${h.gainLoss >= 0 ? "text-success" : "text-destructive"}`}>{h.gainLoss >= 0 ? "+" : ""}${fmt(Math.abs(h.gainLoss))}</p>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      <InvestmentSection
+        plaidAccounts={byGroup.investment}
+        manualAccounts={manualInvest}
+        total={totals.investment}
+      />
 
-      {/* HSA */}
-      {byGroup.hsa.length > 0 && (
+      {byGroup.hsa.length + manualHsa.length > 0 && (
         <div className="rounded-2xl border border-border bg-card px-5 py-4">
-          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-3">HSA</p>
+          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-1">HSA</p>
           <div className="flex flex-col divide-y divide-border/50">
             {byGroup.hsa.map(a => <AccountRow key={a.plaid_account_id} acct={a} />)}
+            {manualHsa.map(a => (
+              <div key={a.id} className="py-3 flex items-center gap-3 first:pt-0">
+                <Avatar name={a.name} size="sm" />
+                <p className="flex-1 text-sm font-medium text-foreground truncate">{a.name}</p>
+                <p className="text-sm font-semibold text-foreground">${fmt(a.liveValue ?? a.balance)}</p>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Savings tools */}
       <div className="rounded-2xl border border-border bg-card px-5 py-4">
         <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Planning</p>
         <div className="flex flex-col divide-y divide-border/50">
           {[
-            { href: "/strategy/projection", label: "NW Projection",   sub: "10-year trajectory with your assumptions" },
-            { href: "/dashboard/savings",   label: "Savings Plan",     sub: "Where should your next dollar go?"         },
-            { href: "/strategy/portfolio",  label: "Portfolio Detail", sub: "Holdings & allocation breakdown"            },
+            { href: "/strategy/projection", label: "NW Projection",   sub: "10-year trajectory" },
+            { href: "/dashboard/savings",   label: "Savings Plan",     sub: "Where should your next dollar go?" },
+            { href: "/strategy/portfolio",  label: "Portfolio Detail", sub: "Holdings & allocation breakdown" },
           ].map(({ href, label, sub }) => (
             <Link key={href} href={href} className="flex items-center justify-between py-3 first:pt-0 hover:opacity-70 transition-opacity">
               <div>
@@ -906,11 +805,10 @@ export default function DashboardPage() {
     </div>
   );
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col min-h-screen pb-28 max-w-lg mx-auto">
-      {/* Header */}
       <div className="px-4 pt-5 pb-3 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-foreground">Dashboard</h1>
@@ -920,19 +818,17 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <Link href="/strategy/projection" className="flex items-center gap-1 text-[11px] text-primary font-semibold bg-primary/10 px-2.5 py-1.5 rounded-xl">
-            <TrendingUp size={11} />Projection
-          </Link>
-        </div>
+        <Link href="/strategy/projection" className="flex items-center gap-1 text-[11px] text-primary font-semibold bg-primary/10 px-2.5 py-1.5 rounded-xl">
+          <TrendingUp size={11} />Projection
+        </Link>
       </div>
 
       <TabBar active={tab} onChange={setTab} />
 
-      {tab === "overview"  && overviewTab}
-      {tab === "spending"  && spendingTab}
-      {tab === "income"    && incomeTab}
-      {tab === "portfolio" && portfolioTab}
+      {tab === "overview"  && Overview}
+      {tab === "spending"  && Spending}
+      {tab === "income"    && Income}
+      {tab === "portfolio" && Portfolio}
     </div>
   );
 }
