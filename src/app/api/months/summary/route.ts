@@ -84,6 +84,8 @@ export async function GET(req: NextRequest) {
     source: useSeed ? "budget_seed" : plaidTxCount > 0 ? "plaid" : "empty",
     income:   useSeed ? seedMonth!.income   : Math.round(plaidIncome * 100) / 100,
     expenses: useSeed ? seedMonth!.expenses : Math.round(plaidExpenses * 100) / 100,
+    // netWorth from budget seed — null when using live Plaid data (live NW computed client-side)
+    netWorth: useSeed ? (seedMonth!.netWorth > 0 ? seedMonth!.netWorth : null) : null,
     categories: useSeed ? seedMonth!.categories : roundedPlaidCategories,
     txCount: plaidTxCount,
   });

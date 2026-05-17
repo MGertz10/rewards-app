@@ -799,6 +799,9 @@ export default function DashboardPage() {
   // 6-month spending chart
   const [monthlySpend, setMonthlySpend] = useState<Array<{ month: string; amount: number }>>([]);
 
+  // Net worth for the selected month from budget seed — null means show live Plaid value
+  const [selectedMonthNW, setSelectedMonthNW] = useState<number | null>(null);
+
   // Net worth history for graph
   const [nwSnapshots, setNwSnapshots] = useState<NWSnapshot[]>([]);
 
@@ -903,13 +906,15 @@ export default function DashboardPage() {
 
   // Fetch month summary for quick stats. Uses /api/months/summary which
   // returns Plaid data when available, falling back to the budget seed so
-  // historical months always show real income/expenses.
+  // historical months always show real income/expenses + net worth.
   const fetchMonthSummary = useCallback((month: string) => {
     fetch(`/api/months/summary?month=${month}`)
       .then(r => r.json())
       .then(res => {
         if (res?.expenses != null) setMonthExpenses(res.expenses);
         if (res?.income != null)   setMonthIncome(res.income);
+        // Use budget seed net worth for historical months; null = show live Plaid value
+        setSelectedMonthNW(res?.netWorth ?? null);
       })
       .catch(() => {});
   }, []);
@@ -1043,14 +1048,29 @@ export default function DashboardPage() {
             {/* ── Net Worth hero ──────────────────────────────────────── */}
             <div className="rounded-2xl border border-border bg-card overflow-hidden">
               <div className="px-5 pt-5 pb-4">
-                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Net Worth</p>
-                <p className="text-4xl font-extrabold text-foreground tracking-tight mt-1">{fmtK(netWorth)}</p>
+                <div className="flex items-baseline gap-2">
+                  <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Net Worth</p>
+                  {selectedMonthNW != null && (
+                    <p className="text-[10px] text-muted-foreground">{monthLabel(spendMonth)}</p>
+                  )}
+                </div>
+                <p className="text-4xl font-extrabold text-foreground tracking-tight mt-1">
+                  {fmtK(selectedMonthNW ?? netWorth)}
+                </p>
                 <div className="flex gap-5 mt-3 flex-wrap">
-                  <div>
-                    <p className="text-[10px] text-muted-foreground">Assets</p>
-                    <p className="text-sm font-bold text-emerald-500">{fmtK(totalAssets)}</p>
-                  </div>
-                  {totals.credit > 0 && (
+                  {selectedMonthNW == null && (
+                    <div>
+                      <p className="text-[10px] text-muted-foreground">Assets</p>
+                      <p className="text-sm font-bold text-emerald-500">{fmtK(totalAssets)}</p>
+                    </div>
+                  )}
+                  {selectedMonthNW != null && (
+                    <div>
+                      <p className="text-[10px] text-muted-foreground">From budget</p>
+                      <p className="text-sm font-bold text-muted-foreground">{monthLabel(spendMonth)}</p>
+                    </div>
+                  )}
+                  {totals.credit > 0 && selectedMonthNW == null && (
                     <>
                       <div className="w-px bg-border" />
                       <div>
@@ -1059,7 +1079,7 @@ export default function DashboardPage() {
                       </div>
                     </>
                   )}
-                  {totals.cash > 0 && (
+                  {totals.cash > 0 && selectedMonthNW == null && (
                     <>
                       <div className="w-px bg-border" />
                       <div>
@@ -1075,7 +1095,7 @@ export default function DashboardPage() {
                   <NetWorthGraph snapshots={nwSnapshots} />
                 </div>
               )}
-              {totalAssets > 0 && (
+              {totalAssets > 0 && selectedMonthNW == null && (
                 <div className="px-5 pb-4 border-t border-border/40 pt-3">
                   <div className="flex h-1.5 rounded-full overflow-hidden gap-px">
                     {([
