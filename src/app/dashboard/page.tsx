@@ -931,9 +931,13 @@ export default function DashboardPage() {
     hsa:        balances.filter(b => classifyAccount(b) === "hsa"),
   };
 
-  const manualRetirement = manualAccounts.filter(a => a.account_type === "retirement");
-  const manualHsa        = manualAccounts.filter(a => a.account_type === "hsa");
-  const manualInvest     = manualAccounts.filter(a => !["retirement","hsa"].includes(a.account_type));
+  // Exclude Plaid-sourced accounts — they already appear in card_balances / byGroup.
+  // Including them here causes double-counting (e.g. 401k counted in both
+  // byGroup.retirement AND manualInvest because holdings-with-prices returns all accounts).
+  const pureManual       = manualAccounts.filter(a => a.source !== "plaid");
+  const manualRetirement = pureManual.filter(a => a.account_type === "retirement");
+  const manualHsa        = pureManual.filter(a => a.account_type === "hsa");
+  const manualInvest     = pureManual.filter(a => !["retirement","hsa"].includes(a.account_type));
 
   const totals = {
     cash:       byGroup.cash.reduce((s, b)       => s + (b.current_balance ?? 0), 0),
@@ -951,7 +955,7 @@ export default function DashboardPage() {
   const hasData     = balances.length > 0 || manualAccounts.length > 0;
   const totalPoints = points.reduce((s, p) => s + ((p.balance * (p.cpp ?? 1)) / 100), 0);
   const acctMap     = Object.fromEntries(balances.map(b => [b.plaid_account_id, b.name]));
-  const allAccountCount = Object.values(byGroup).reduce((s, g) => s + g.length, 0) + manualAccounts.length;
+  const allAccountCount = Object.values(byGroup).reduce((s, g) => s + g.length, 0) + pureManual.length;
 
   // Persist today's net worth snapshot — but ONLY if the locally-computed
   // value is at least within 10% of the most recent historical snapshot.
