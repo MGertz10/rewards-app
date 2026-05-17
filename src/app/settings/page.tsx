@@ -10,6 +10,7 @@ import {
   Database,
   Info,
   ChevronRight,
+  Lightbulb,
 } from "lucide-react";
 
 const sections = [
@@ -45,6 +46,12 @@ const sections = [
     title: "About",
     items: [
       { icon: Info, label: "About", description: "Version, changelog, feedback", href: "/settings/about" },
+    ],
+  },
+  {
+    title: "Roadmap",
+    items: [
+      { icon: Lightbulb, label: "Feature Ideas", description: "Backlog, in progress, and done", href: "/settings/ideas" },
     ],
   },
 ];
