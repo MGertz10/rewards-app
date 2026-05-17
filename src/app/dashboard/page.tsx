@@ -18,6 +18,7 @@ import { useCardNameMap, detectCardNameFromPlaid } from "@/lib/use-card-name-map
 
 interface CardBalance {
   plaid_account_id: string;
+  item_id?: string;
   name: string | null;
   mask: string | null;
   current_balance: number | null;
@@ -91,20 +92,33 @@ function titleCaseIfShouty(raw: string | null): string {
   return trimmed;
 }
 
+// Institution-based overrides for cards that Plaid returns with generic names.
+// Keyed by lowercased institution string from plaid_items.
+const INSTITUTION_CARD_HINTS: Record<string, string> = {
+  "capital one": "Venture X",
+};
+
 // Build a display name for any account row:
 //   1. Map by last4 (user-configured in Settings → My Cards)
 //   2. Auto-detect card product names from Plaid string
-//   3. Normalize ALL CAPS sandbox strings → Title Case
+//   3. Institution-based fallback for known generic names (e.g. Cap One "credit Account XXXX")
+//   4. Normalize ALL CAPS strings → Title Case
 //   Mask suffix appended in all branches.
 function displayAccountName(
   rawName: string | null,
   mask: string | null,
   cardNameMap: Map<string, string>,
+  institution?: string,
 ): string {
   const suffix = mask ? ` ····${mask}` : "";
   if (mask && cardNameMap.has(mask)) return `${cardNameMap.get(mask)}${suffix}`;
   const detected = detectCardNameFromPlaid(rawName);
   if (detected) return `${detected}${suffix}`;
+  // Generic names like "credit Account XXXX" from Capital One → use institution hint
+  if (institution) {
+    const hint = INSTITUTION_CARD_HINTS[institution.toLowerCase()];
+    if (hint) return `${hint}${suffix}`;
+  }
   return `${titleCaseIfShouty(rawName)}${suffix}`;
 }
 
@@ -238,13 +252,14 @@ const PROG_BRAND: Record<string, { bg: string; initials: string }> = {
 
 // ─── Account row ───────────────────────────────────────────────────────────
 
-function AccountRow({ acct, cardNameMap }: { acct: CardBalance; cardNameMap: Map<string, string> }) {
+function AccountRow({ acct, cardNameMap, institutionMap }: { acct: CardBalance; cardNameMap: Map<string, string>; institutionMap: Map<string, string> }) {
   const isCard = classifyAccount(acct) === "credit";
   const bal = acct.current_balance ?? 0;
   const util = acct.utilization_pct;
   const utilColor = util != null
     ? (util > 30 ? "text-destructive" : util > 9 ? "text-amber-500" : "text-emerald-500") : "";
-  const display = displayAccountName(acct.name, acct.mask, cardNameMap);
+  const institution = acct.item_id ? institutionMap.get(acct.item_id) : undefined;
+  const display = displayAccountName(acct.name, acct.mask, cardNameMap, institution);
   return (
     <div className="flex items-center gap-3 py-3">
       <Avatar name={acct.name} size="sm" />
@@ -272,10 +287,10 @@ function AccountRow({ acct, cardNameMap }: { acct: CardBalance; cardNameMap: Map
 // ─── Collapsible account group ─────────────────────────────────────────────
 
 function AccountSection({
-  title, accounts, total, isLiability, startOpen = true, cardNameMap,
+  title, accounts, total, isLiability, startOpen = true, cardNameMap, institutionMap,
 }: {
   title: string; accounts: CardBalance[]; total: number; isLiability?: boolean; startOpen?: boolean;
-  cardNameMap: Map<string, string>;
+  cardNameMap: Map<string, string>; institutionMap: Map<string, string>;
 }) {
   const [open, setOpen] = useState(startOpen);
   if (!accounts.length) return null;
@@ -295,7 +310,7 @@ function AccountSection({
       </button>
       {open && (
         <div className="pb-1 divide-y divide-border/40">
-          {accounts.map(a => <AccountRow key={a.plaid_account_id} acct={a} cardNameMap={cardNameMap} />)}
+          {accounts.map(a => <AccountRow key={a.plaid_account_id} acct={a} cardNameMap={cardNameMap} institutionMap={institutionMap} />)}
         </div>
       )}
     </div>
@@ -305,12 +320,13 @@ function AccountSection({
 // ─── Investment section ────────────────────────────────────────────────────
 
 function InvestmentSection({
-  plaidAccounts, manualAccounts, total, cardNameMap,
+  plaidAccounts, manualAccounts, total, cardNameMap, institutionMap,
 }: {
   plaidAccounts: CardBalance[];
   manualAccounts: AccountWithHoldings[];
   total: number;
   cardNameMap: Map<string, string>;
+  institutionMap: Map<string, string>;
 }) {
   const [open, setOpen] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -339,7 +355,7 @@ function InvestmentSection({
       </button>
       {open && (
         <div className="pb-1 divide-y divide-border/40">
-          {plaidAccounts.map(a => <AccountRow key={a.plaid_account_id} acct={a} cardNameMap={cardNameMap} />)}
+          {plaidAccounts.map(a => <AccountRow key={a.plaid_account_id} acct={a} cardNameMap={cardNameMap} institutionMap={institutionMap} />)}
           {manualAccounts.map(a => {
             const val = a.liveValue ?? a.balance;
             const isExp = expanded.has(a.id);
@@ -789,15 +805,18 @@ export default function DashboardPage() {
   // Count of linked Plaid institutions — used to gate the "Connect …" prompt
   const [plaidItemsCount, setPlaidItemsCount] = useState(0);
 
+  // item_id → institution name (e.g. "Capital One"), used for context-aware card naming
+  const [institutionMap, setInstitutionMap] = useState<Map<string, string>>(new Map());
+
   // last4 → friendly card shortName, sourced from user_card_metadata
   const cardNameMap = useCardNameMap();
 
   const loadBalances = useCallback(async () => {
     const supabase = createClient();
-    const [{ data: bals }, holdingsRes, { data: txs }, pointsRes, { count: itemsCount }] = await Promise.all([
+    const [{ data: bals }, holdingsRes, { data: txs }, pointsRes, { data: plaidItems }] = await Promise.all([
       supabase
         .from("card_balances")
-        .select("plaid_account_id,name,mask,current_balance,available_balance,credit_limit,utilization_pct,account_type,account_subtype,as_of")
+        .select("plaid_account_id,name,mask,current_balance,available_balance,credit_limit,utilization_pct,account_type,account_subtype,as_of,item_id")
         .order("name"),
       fetch("/api/accounts/holdings-with-prices").then(r => r.json()).catch(() => ({ accounts: [] })),
       supabase
@@ -809,9 +828,12 @@ export default function DashboardPage() {
         .order("posted_at", { ascending: false })
         .limit(8),
       fetch("/api/points-balances").then(r => r.json()).catch(() => ({ balances: [] })),
-      supabase.from("plaid_items").select("item_id", { count: "exact", head: true }),
+      supabase.from("plaid_items").select("item_id,institution"),
     ]);
-    setPlaidItemsCount(itemsCount ?? 0);
+    setPlaidItemsCount(plaidItems?.length ?? 0);
+    if (plaidItems) {
+      setInstitutionMap(new Map(plaidItems.map((i: { item_id: string; institution: string }) => [i.item_id, i.institution])));
+    }
     if (bals) {
       setBalances(bals);
       const times = bals.map((b: CardBalance) => b.as_of).filter(Boolean) as string[];
@@ -1127,15 +1149,16 @@ export default function DashboardPage() {
                   </Link>
                 </div>
               </div>
-              <AccountSection title="Cash & Savings"  accounts={byGroup.cash}       total={totals.cash}       cardNameMap={cardNameMap} />
-              <AccountSection title="Credit Cards"     accounts={byGroup.credit}     total={totals.credit}     isLiability cardNameMap={cardNameMap} />
-              <AccountSection title="HSA"              accounts={byGroup.hsa}        total={totals.hsa}        cardNameMap={cardNameMap} />
-              <AccountSection title="Retirement"       accounts={byGroup.retirement} total={totals.retirement} cardNameMap={cardNameMap} />
+              <AccountSection title="Cash & Savings"  accounts={byGroup.cash}       total={totals.cash}       cardNameMap={cardNameMap} institutionMap={institutionMap} />
+              <AccountSection title="Credit Cards"     accounts={byGroup.credit}     total={totals.credit}     isLiability cardNameMap={cardNameMap} institutionMap={institutionMap} />
+              <AccountSection title="HSA"              accounts={byGroup.hsa}        total={totals.hsa}        cardNameMap={cardNameMap} institutionMap={institutionMap} />
+              <AccountSection title="Retirement"       accounts={byGroup.retirement} total={totals.retirement} cardNameMap={cardNameMap} institutionMap={institutionMap} />
               <InvestmentSection
                 plaidAccounts={byGroup.investment}
                 manualAccounts={manualInvest}
                 total={totals.investment}
                 cardNameMap={cardNameMap}
+                institutionMap={institutionMap}
               />
               {/* Prompt to add missing accounts — only shown when no Plaid
                   institutions are linked yet. Once any institution is linked
