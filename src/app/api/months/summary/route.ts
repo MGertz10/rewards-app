@@ -69,9 +69,15 @@ export async function GET(req: NextRequest) {
     console.warn("[months/summary] plaid query failed:", err);
   }
 
-  // ── Budget seed fallback ───────────────────────────────────────────────────
+  // ── Source priority ────────────────────────────────────────────────────────
+  // User's intent: budget seed owns all historical months; Plaid owns the
+  // current (and future) month once live data starts flowing.
+  // We NEVER let partial Plaid data override a manually-verified budget month.
   const seedMonth = BUDGET_SEED.months.find((m) => m.month === toSeedLabel(month));
-  const useSeed = plaidTxCount === 0 && !!seedMonth;
+  const currentMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+  const isCurrentMonth = month >= currentMonth;
+  // Use seed when: seed exists AND this is a past month (regardless of Plaid tx count)
+  const useSeed = !!seedMonth && !isCurrentMonth;
 
   // Round category values to 2 decimal places
   const roundedPlaidCategories: Record<string, number> = {};
